@@ -1,0 +1,111 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.pytest_cache/
+nosetests.xml
+coverage.xml
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+.env/
+env.bak/
+venv.bak/
+
+# pyenv
+.python-version
+
+# IDEs/editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Lock files
+Pipfile.lock
+poetry.lock
+
+# dotenv
+.env
+.env.*
+.env.local
+
+# Streamlit
+.streamlit/
+.streamlit/secrets.toml
+
+# Data, outputs and DBs
+data/
+outputs/
+*.sqlite
+*.db
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+nohup.out
+
+# Caches and build artifacts
+.cache/
+__pypackages__/
+.mypy_cache/
+
+# Hugging Face / model caches
+.cache/huggingface
+huggingface_hub/
+
+# Trained model files
+*.ckpt
+*.pth
+*.pt
+
+# Keys and secrets
+*.pem
+*.key
+secrets.json
+credentials.json
+
+# Temporary/lock files
+~$*
+
+# Misc
+*.egg
+*.egg-info/
+*.bak
+*.swp
+*.tmp
+
+# Ignore local settings
+.local_settings.py
+
+# End of .gitignore
