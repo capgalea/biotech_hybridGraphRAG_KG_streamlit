@@ -1,0 +1,124 @@
+# deployment/kubernetes.yaml
+# Kubernetes deployment configuration (optional)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: graphrag
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: graphrag-secrets
+  namespace: graphrag
+type: Opaque
+stringData:
+  neo4j-password: "your_password_here"
+  anthropic-api-key: "your_api_key_here"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j
+  namespace: graphrag
+spec:
+  serviceName: neo4j
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neo4j
+  template:
+    metadata:
+      labels:
+        app: neo4j
+    spec:
+      containers:
+      - name: neo4j
+        image: neo4j:5.15-community
+        ports:
+        - containerPort: 7474
+          name: http
+        - containerPort: 7687
+          name: bolt
+        env:
+        - name: NEO4J_AUTH
+          value: "neo4j/$(NEO4J_PASSWORD)"
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: graphrag-secrets
+              key: neo4j-password
+        volumeMounts:
+        - name: neo4j-data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: neo4j-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: graphrag
+spec:
+  selector:
+    app: neo4j
+  ports:
+  - name: http
+    port: 7474
+  - name: bolt
+    port: 7687
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamlit-app
+  namespace: graphrag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: streamlit
+  template:
+    metadata:
+      labels:
+        app: streamlit
+    spec:
+      containers:
+      - name: streamlit
+        image: your-registry/graphrag-app:latest
+        ports:
+        - containerPort: 8501
+        env:
+        - name: NEO4J_URI
+          value: "bolt://neo4j:7687"
+        - name: NEO4J_USER
+          value: "neo4j"
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: graphrag-secrets
+              key: neo4j-password
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamlit
+  namespace: graphrag
+spec:
+  selector:
+    app: streamlit
+  ports:
+  - port: 80
+    targetPort: 8501
+  type: LoadBalancer
