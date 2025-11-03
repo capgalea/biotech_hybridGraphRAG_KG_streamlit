@@ -4,9 +4,9 @@ This creates the graph schema and populates the database
 """
 
 import pandas as pd
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, Query
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import sys
 import os
 import toml
@@ -18,17 +18,18 @@ logger = logging.getLogger(__name__)
 class DataIngestion:
     """Handle data ingestion into Neo4j"""
     
-    def __init__(self, uri: str, user: str, password: str):
+    def __init__(self, uri: str, user: str, password: str, database: str = "neo4j"):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        self.database = database
     
     def close(self):
         self.driver.close()
     
     def clear_database(self):
         """Clear all nodes and relationships (use with caution!)"""
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             logger.info("Clearing database...")
-            session.run("MATCH (n) DETACH DELETE n")
+            session.run("MATCH (n) DETACH DELETE n")  # type: ignore
             logger.info("Database cleared")
     
     def create_constraints(self):
@@ -40,10 +41,10 @@ class DataIngestion:
             "CREATE CONSTRAINT area_name IF NOT EXISTS FOR (a:ResearchArea) REQUIRE a.name IS UNIQUE",
         ]
         
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             for constraint in constraints:
                 try:
-                    session.run(constraint)
+                    session.run(constraint)  # type: ignore
                     logger.info(f"Created constraint: {constraint[:50]}...")
                 except Exception as e:
                     logger.warning(f"Constraint may already exist: {str(e)}")
@@ -57,10 +58,10 @@ class DataIngestion:
             "CREATE INDEX researcher_orcid IF NOT EXISTS FOR (r:Researcher) ON (r.orcid_id)",
         ]
         
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             for index in indexes:
                 try:
-                    session.run(index)
+                    session.run(index)  # type: ignore
                     logger.info(f"Created index: {index[:50]}...")
                 except Exception as e:
                     logger.warning(f"Index may already exist: {str(e)}")
@@ -83,7 +84,7 @@ class DataIngestion:
             g.field_of_research = $field_of_research
         """
         
-        session.run(grant_cypher, {
+        session.run(grant_cypher, {  # type: ignore
             'application_id': int(grant_data['Application_ID']),
             'title': grant_data['Grant_Title'],
             'description': grant_data.get('Plain_Description', ''),
@@ -107,7 +108,7 @@ class DataIngestion:
             MERGE (r)-[:PRINCIPAL_INVESTIGATOR]->(g)
             """
             
-            session.run(researcher_cypher, {
+            session.run(researcher_cypher, {  # type: ignore
                 'name': grant_data['CIA_Name'],
                 'orcid_id': grant_data.get('CIA_ORCID_ID', ''),
                 'application_id': int(grant_data['Application_ID'])
@@ -122,7 +123,7 @@ class DataIngestion:
             MERGE (g)-[:HOSTED_BY]->(i)
             """
             
-            session.run(institution_cypher, {
+            session.run(institution_cypher, {  # type: ignore
                 'name': grant_data['Admin_Institution'],
                 'application_id': int(grant_data['Application_ID'])
             })
@@ -136,7 +137,7 @@ class DataIngestion:
             MERGE (g)-[:IN_AREA]->(a)
             """
             
-            session.run(area_cypher, {
+            session.run(area_cypher, {  # type: ignore
                 'name': grant_data['Broad_Research_Area'],
                 'application_id': int(grant_data['Application_ID'])
             })
@@ -154,7 +155,7 @@ class DataIngestion:
                     MERGE (g)-[:HAS_FIELD {level: $level}]->(f)
                     """
                     
-                    session.run(field_cypher, {
+                    session.run(field_cypher, {  # type: ignore
                         'name': field,
                         'application_id': int(grant_data['Application_ID']),
                         'level': i
@@ -167,12 +168,12 @@ class DataIngestion:
         
         logger.info(f"Found {len(df)} records")
         
-        with self.driver.session() as session:
-            for idx, row in df.iterrows():
+        with self.driver.session(database=self.database) as session:
+            for count, (idx, row) in enumerate(df.iterrows(), 1):
                 try:
                     self.ingest_grant(session, row.to_dict())
-                    if (idx + 1) % 10 == 0:
-                        logger.info(f"Processed {idx + 1}/{len(df)} grants")
+                    if count % 10 == 0:
+                        logger.info(f"Processed {count}/{len(df)} grants")
                 except Exception as e:
                     logger.error(f"Error processing grant {row.get('Application_ID')}: {str(e)}")
         
@@ -195,8 +196,8 @@ class DataIngestion:
         """
         
         try:
-            with self.driver.session() as session:
-                session.run(vector_index_cypher)
+            with self.driver.session(database=self.database) as session:
+                session.run(vector_index_cypher)  # type: ignore
                 logger.info("Vector index created (embeddings need to be added separately)")
         except Exception as e:
             logger.warning(f"Could not create vector index: {str(e)}")
@@ -212,16 +213,20 @@ class DataIngestion:
             ("Relationships", "MATCH ()-[r]->() RETURN count(r) as count"),
         ]
         
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             logger.info("\n=== Database Statistics ===")
             for name, query in queries:
-                result = session.run(query)
-                count = result.single()['count']
-                logger.info(f"{name}: {count}")
+                result = session.run(query)  # type: ignore
+                record = result.single()
+                if record is not None:
+                    count = record['count']
+                    logger.info(f"{name}: {count}")
+                else:
+                    logger.warning(f"{name}: No results returned")
 
 
-def load_neo4j_config():
-    """Load Neo4j configuration from Streamlit secrets.toml"""
+def load_config_from_secrets():
+    """Load configuration from Streamlit secrets.toml"""
     secrets_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".streamlit", "secrets.toml")
     
     try:
@@ -230,43 +235,54 @@ def load_neo4j_config():
         
         neo4j_config = secrets.get('neo4j', {})
         return {
-            'uri': neo4j_config.get('uri', 'bolt://localhost:7687'),
-            'user': neo4j_config.get('usr', 'neo4j'),  # Note: secrets.toml uses 'usr' not 'user'
-            'password': neo4j_config.get('password', 'password'),
-            'database': neo4j_config.get('database', 'neo4j')
+            'neo4j': {
+                'uri': neo4j_config.get('uri', 'bolt://localhost:7687'),
+                'user': neo4j_config.get('user', 'neo4j'),  # Using 'user' key for consistency
+                'password': neo4j_config.get('password', 'password'),
+                'database': neo4j_config.get('database', 'neo4j')
+            },
+            'csv_path': secrets.get('csv_path', 'combined_grants_small.csv')
         }
     except FileNotFoundError:
         logger.warning(f"Secrets file not found at {secrets_path}. Using environment variables or defaults.")
         return {
-            'uri': os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-            'user': os.getenv("NEO4J_USER", "neo4j"),
-            'password': os.getenv("NEO4J_PASSWORD", "password"),
-            'database': os.getenv("NEO4J_DATABASE", "neo4j")
+            'neo4j': {
+                'uri': os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+                'user': os.getenv("NEO4J_USER", "neo4j"),
+                'password': os.getenv("NEO4J_PASSWORD", "password"),
+                'database': os.getenv("NEO4J_DATABASE", "neo4j")
+            },
+            'csv_path': os.getenv("CSV_PATH", "combined_grants_small.csv")
         }
     except Exception as e:
         logger.error(f"Error reading secrets file: {e}. Using environment variables or defaults.")
         return {
-            'uri': os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-            'user': os.getenv("NEO4J_USER", "neo4j"),
-            'password': os.getenv("NEO4J_PASSWORD", "password"),
-            'database': os.getenv("NEO4J_DATABASE", "neo4j")
+            'neo4j': {
+                'uri': os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+                'user': os.getenv("NEO4J_USER", "neo4j"),
+                'password': os.getenv("NEO4J_PASSWORD", "password"),
+                'database': os.getenv("NEO4J_DATABASE", "neo4j")
+            },
+            'csv_path': os.getenv("CSV_PATH", "combined_grants_small.csv")
         }
 
 
 def main():
     """Main execution function"""
-    # Load Neo4j configuration from secrets.toml
-    neo4j_config = load_neo4j_config()
+    # Load configuration from secrets.toml
+    config = load_config_from_secrets()
+    neo4j_config = config['neo4j']
     NEO4J_URI = neo4j_config['uri']
     NEO4J_USER = neo4j_config['user']
     NEO4J_PASSWORD = neo4j_config['password']
-    CSV_PATH = os.getenv("CSV_PATH", "combined_grants_small.csv")
+    CSV_PATH = config['csv_path']
     
     logger.info("Starting data ingestion process...")
     logger.info(f"Neo4j URI: {NEO4J_URI}")
+    logger.info(f"Database: {neo4j_config['database']}")
     logger.info(f"CSV Path: {CSV_PATH}")
     
-    ingestion = DataIngestion(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+    ingestion = DataIngestion(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, neo4j_config['database'])
     
     try:
         # Step 1: Clear existing data (optional - comment out to preserve data)
