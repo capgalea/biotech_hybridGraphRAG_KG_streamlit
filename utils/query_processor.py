@@ -11,13 +11,17 @@ class QueryProcessor:
         self.neo4j = neo4j_handler
         self.llm = llm_handler
     
-    def process_query(self, natural_query: str) -> Dict[str, Any]:
+    def process_query(self, natural_query: str, include_search: bool = True) -> dict:
         """
-        Process a natural language query through the full pipeline:
-        1. Get schema
-        2. Generate Cypher
-        3. Execute query
+        Process a natural language query through the complete pipeline:
+        1. Convert to Cypher using LLM
+        2. Execute against Neo4j
+        3. Format results
         4. Generate summary and insights
+        
+        Args:
+            natural_query: The natural language query
+            include_search: Whether to include Google Search context in summary
         """
         try:
             # Step 1: Get schema
@@ -33,7 +37,7 @@ class QueryProcessor:
             formatted_data = self._format_results(results)
             
             # Step 5: Generate summary
-            summary = self.llm.generate_summary(natural_query, results)
+            summary = self.llm.generate_summary(natural_query, results, include_search)
             
             # Step 6: Extract insights
             insights = self.llm.extract_insights(results)
@@ -122,16 +126,31 @@ class QueryProcessor:
     
     def get_collaboration_network(self, researcher_name: str) -> List[Dict]:
         """
-        Get collaboration network for a researcher
+        Get collaboration network for a researcher (includes both PIs and investigators)
+        Uses case-insensitive partial matching for researcher names
         """
         cypher = """
-        MATCH (r1:Researcher {name: $name})-[:PRINCIPAL_INVESTIGATOR]->(g:Grant)
-              <-[:PRINCIPAL_INVESTIGATOR]-(r2:Researcher)
-        WHERE r1 <> r2
-        RETURN r1, r2, g
+        MATCH (r1:Researcher)-[rel1:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
+              <-[rel2:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]-(r2:Researcher)
+        WHERE r1 <> r2 
+          AND toLower(r1.name) CONTAINS toLower($name)
+        RETURN r1, r2, g, type(rel1) as r1_role, type(rel2) as r2_role
         """
         
         return self.neo4j.execute_cypher(cypher, {'name': researcher_name})
+    
+    def get_researcher_suggestions(self, partial_name: str, limit: int = 5) -> List[Dict]:
+        """
+        Get researcher name suggestions based on partial name match
+        """
+        cypher = """
+        MATCH (r:Researcher) 
+        WHERE toLower(r.name) CONTAINS toLower($name)
+        RETURN r.name as name 
+        LIMIT $limit
+        """
+        
+        return self.neo4j.execute_cypher(cypher, {'name': partial_name, 'limit': limit})
     
     def get_funding_trends(self, start_year: int, end_year: int) -> List[Dict]:
         """
