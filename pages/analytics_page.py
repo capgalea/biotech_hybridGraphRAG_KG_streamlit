@@ -11,8 +11,10 @@ try:
     from streamlit_folium import st_folium
     FOLIUM_AVAILABLE = True
 except ImportError:
+    # Create dummy objects to prevent NameError
+    folium = None
+    st_folium = None
     FOLIUM_AVAILABLE = False
-    st.warning("Folium not available. Map visualization will be disabled.")
 
 def safe_format_amount(amount):
     """Safely format amount as currency, handling string/int/float/None values"""
@@ -31,8 +33,6 @@ def safe_format_amount(amount):
         return f"${amount_float:,.0f}"
     except (ValueError, TypeError):
         return "N/A"
-
-st.set_page_config(page_title="Analytics Dashboard", page_icon="📊", layout="wide")
 
 # Initialize Neo4j
 @st.cache_resource
@@ -234,6 +234,12 @@ with tab4:
     Analyze collaboration patterns between researchers working on similar grants.
     """)
     
+    # Initialize session state for collaboration results
+    if 'collaboration_results' not in st.session_state:
+        st.session_state.collaboration_results = None
+    if 'collaboration_researcher' not in st.session_state:
+        st.session_state.collaboration_researcher = ""
+    
     # Search for researcher
     researcher_input = st.text_input("Enter researcher name:", "")
     
@@ -244,6 +250,10 @@ with tab4:
                 collaborations = query_processor.get_collaboration_network(researcher_input)
                 
                 if collaborations:
+                    # Store results in session state
+                    st.session_state.collaboration_results = collaborations
+                    st.session_state.collaboration_researcher = researcher_input
+                    
                     # Get the actual researcher name from first result
                     actual_name = collaborations[0]['r1']['name']
                     st.success(f"Found {len(collaborations)} collaborations for **{actual_name}**")
@@ -273,137 +283,10 @@ with tab4:
                             st.warning(f"Skipped problematic collaboration record: {str(e)}")
                             continue
                     
-                    # Create DataFrame for display
-                    df = pd.DataFrame(collab_data)
-                    
-                    # Add map visualization
-                    st.subheader("🗺️ Collaborator Locations")
-                    
-                    if FOLIUM_AVAILABLE:
-                        # Get collaborator locations
-                        try:
-                            locations = query_processor.get_collaborator_locations(researcher_input)
-                            
-                            if locations:
-                                # Create map centered on Australia
-                                map_center = [-25.2744, 133.7751]  # Australia center
-                                m = folium.Map(location=map_center, zoom_start=5)
-                                
-                                # Add markers for each collaborator location
-                                for loc in locations:
-                                    popup_text = f"""
-                                    <b>{loc['collaborator']}</b><br>
-                                    Institution: {loc['institution']}<br>
-                                    City: {loc['city']}, {loc['state']}<br>
-                                    Collaborations: {loc['collaboration_count']}
-                                    """
-                                    
-                                    # Color code by collaboration count
-                                    if loc['collaboration_count'] >= 5:
-                                        color = 'red'
-                                    elif loc['collaboration_count'] >= 3:
-                                        color = 'orange'
-                                    else:
-                                        color = 'blue'
-                                    
-                                    folium.Marker(
-                                        location=[loc['latitude'], loc['longitude']],
-                                        popup=folium.Popup(popup_text, max_width=300),
-                                        tooltip=f"{loc['collaborator']} ({loc['city']})",
-                                        icon=folium.Icon(color=color, icon='user')
-                                    ).add_to(m)
-                                
-                                # Display map
-                                map_data = st_folium(m, width=700, height=500)
-                                
-                                # Add legend
-                                st.markdown("""
-                                **Map Legend:**
-                                - 🔴 Red: 5+ collaborations
-                                - 🟠 Orange: 3-4 collaborations  
-                                - 🔵 Blue: 1-2 collaborations
-                                """)
-                                
-                                # Location summary
-                                col1, col2, col3 = st.columns(3)
-                                
-                                with col1:
-                                    unique_cities = len(set(loc['city'] for loc in locations))
-                                    st.metric("Cities", unique_cities)
-                                
-                                with col2:
-                                    unique_states = len(set(loc['state'] for loc in locations))
-                                    st.metric("States/Territories", unique_states)
-                                
-                                with col3:
-                                    total_collabs = sum(loc['collaboration_count'] for loc in locations)
-                                    st.metric("Total Collaborations", total_collabs)
-                                
-                            else:
-                                st.info("No location data available for collaborators. This may be because institutions are not recognized in our database.")
-                        
-                        except Exception as e:
-                            st.warning(f"Could not load location data: {str(e)}")
-                    else:
-                        # Fallback: Show location data in a table format
-                        try:
-                            locations = query_processor.get_collaborator_locations(researcher_input)
-                            
-                            if locations:
-                                st.info("Interactive map not available. Showing location data in table format:")
-                                
-                                # Create DataFrame for location data
-                                location_df = pd.DataFrame(locations)
-                                location_df = location_df[['collaborator', 'institution', 'city', 'state', 'collaboration_count']]
-                                location_df.columns = ['Collaborator', 'Institution', 'City', 'State', 'Collaborations']
-                                
-                                st.dataframe(location_df, use_container_width=True)
-                                
-                                # Location summary
-                                col1, col2, col3 = st.columns(3)
-                                
-                                with col1:
-                                    unique_cities = len(set(loc['city'] for loc in locations))
-                                    st.metric("Cities", unique_cities)
-                                
-                                with col2:
-                                    unique_states = len(set(loc['state'] for loc in locations))
-                                    st.metric("States/Territories", unique_states)
-                                
-                                with col3:
-                                    total_collabs = sum(loc['collaboration_count'] for loc in locations)
-                                    st.metric("Total Collaborations", total_collabs)
-                            else:
-                                st.info("No location data available for collaborators.")
-                        
-                        except Exception as e:
-                            st.warning(f"Could not load location data: {str(e)}")
-                    
-                    st.subheader(f"🤝 Unique Collaborators ({len(unique_collaborators)})")
-                    st.dataframe(df, use_container_width=True)
-                    
-                    # Show all collaborations in expandable section
-                    with st.expander("📋 View All Collaboration Details"):
-                        all_collab_data = []
-                        for collab in collaborations:
-                            try:
-                                all_collab_data.append({
-                                    'Researcher': str(collab['r1']['name']),
-                                    'Researcher Role': str(collab.get('r1_role', 'Unknown')),
-                                    'Collaborator': str(collab['r2']['name']),
-                                    'Collaborator Role': str(collab.get('r2_role', 'Unknown')),
-                                    'Grant Title': str(collab['g'].get('title', 'Unknown Grant')),
-                                    'Grant Amount': safe_format_amount(collab['g'].get('amount'))
-                                })
-                            except Exception as e:
-                                # Skip problematic records
-                                continue
-                        all_df = pd.DataFrame(all_collab_data)
-                        st.dataframe(all_df, use_container_width=True)
-                    
-                    st.info("💡 Switch to the Graph Visualization page for interactive network view")
+                    # Results will be displayed outside the button block
                 else:
-                    # Try to find similar researcher names for suggestions
+                    # Clear previous results and show suggestions
+                    st.session_state.collaboration_results = None
                     suggestions = query_processor.get_researcher_suggestions(researcher_input)
                     
                     if suggestions:
@@ -415,8 +298,170 @@ with tab4:
                     
             except Exception as e:
                 st.error(f"Error: {str(e)}")
+                st.session_state.collaboration_results = None
         else:
             st.warning("Please enter a researcher name")
+    
+    # Display collaboration results if available in session state
+    if st.session_state.collaboration_results:
+        collaborations = st.session_state.collaboration_results
+        researcher_name = st.session_state.collaboration_researcher
+        
+        # Process collaborations for display
+        collab_data = []
+        unique_collaborators = set()
+        
+        for collab in collaborations:
+            try:
+                collaborator = str(collab['r2']['name'])
+                if collaborator not in unique_collaborators:
+                    unique_collaborators.add(collaborator)
+                    # Safely handle grant title
+                    grant_title = str(collab['g'].get('title', 'Unknown Grant'))
+                    if len(grant_title) > 100:
+                        grant_title = grant_title[:100] + '...'
+                    
+                    collab_data.append({
+                        'Collaborator': collaborator,
+                        'Role': str(collab.get('r2_role', 'Unknown')),
+                        'Grant Title': grant_title,
+                        'Grant Amount': safe_format_amount(collab['g'].get('amount'))
+                    })
+            except Exception as e:
+                # Skip problematic collaboration records
+                continue
+        
+        # Create DataFrame for display
+        df = pd.DataFrame(collab_data)
+        
+        st.divider()
+        
+        # Add map visualization
+        st.subheader("🗺️ Collaborator Locations")
+        
+        if FOLIUM_AVAILABLE:
+            # Get collaborator locations
+            try:
+                locations = query_processor.get_collaborator_locations(researcher_name)
+                
+                if locations:
+                    # Create map centered on Australia
+                    map_center = [-25.2744, 133.7751]  # Australia center
+                    m = folium.Map(location=map_center, zoom_start=5)
+                    
+                    # Add markers for each collaborator location
+                    for loc in locations:
+                        popup_text = f"""
+                        <b>{loc['collaborator']}</b><br>
+                        Institution: {loc['institution']}<br>
+                        City: {loc['city']}, {loc['state']}<br>
+                        Collaborations: {loc['collaboration_count']}
+                        """
+                        
+                        # Color code by collaboration count
+                        if loc['collaboration_count'] >= 5:
+                            color = 'red'
+                        elif loc['collaboration_count'] >= 3:
+                            color = 'orange'
+                        else:
+                            color = 'blue'
+                        
+                        folium.Marker(
+                            location=[loc['latitude'], loc['longitude']],
+                            popup=folium.Popup(popup_text, max_width=300),
+                            tooltip=f"{loc['collaborator']} ({loc['city']})",
+                            icon=folium.Icon(color=color, icon='user')
+                        ).add_to(m)
+                    
+                    # Display map
+                    map_data = st_folium(m, width=700, height=500)
+                    
+                    # Add legend
+                    st.markdown("""
+                    **Map Legend:**
+                    - 🔴 Red: 5+ collaborations
+                    - 🟠 Orange: 3-4 collaborations  
+                    - 🔵 Blue: 1-2 collaborations
+                    """)
+                    
+                    # Location summary
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        unique_cities = len(set(loc['city'] for loc in locations))
+                        st.metric("Cities", unique_cities)
+                    
+                    with col2:
+                        unique_states = len(set(loc['state'] for loc in locations))
+                        st.metric("States/Territories", unique_states)
+                    
+                    with col3:
+                        total_collabs = sum(loc['collaboration_count'] for loc in locations)
+                        st.metric("Total Collaborations", total_collabs)
+                    
+                else:
+                    st.info("No location data available for collaborators. This may be because institutions are not recognized in our database.")
+            
+            except Exception as e:
+                st.warning(f"Could not load location data: {str(e)}")
+        else:
+            # Fallback: Show location data in a table format
+            try:
+                locations = query_processor.get_collaborator_locations(researcher_name)
+                
+                if locations:
+                    st.info("Interactive map not available. Showing location data in table format:")
+                    
+                    # Create DataFrame for location data
+                    location_df = pd.DataFrame(locations)
+                    location_df = location_df[['collaborator', 'institution', 'city', 'state', 'collaboration_count']]
+                    location_df.columns = ['Collaborator', 'Institution', 'City', 'State', 'Collaborations']
+                    
+                    st.dataframe(location_df, use_container_width=True)
+                    
+                    # Location summary
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        unique_cities = len(set(loc['city'] for loc in locations))
+                        st.metric("Cities", unique_cities)
+                    
+                    with col2:
+                        unique_states = len(set(loc['state'] for loc in locations))
+                        st.metric("States/Territories", unique_states)
+                    
+                    with col3:
+                        total_collabs = sum(loc['collaboration_count'] for loc in locations)
+                        st.metric("Total Collaborations", total_collabs)
+                else:
+                    st.info("No location data available for collaborators.")
+            
+            except Exception as e:
+                st.warning(f"Could not load location data: {str(e)}")
+        
+        st.subheader(f"🤝 Unique Collaborators ({len(unique_collaborators)})")
+        st.dataframe(df, use_container_width=True)
+        
+        # Show all collaborations in expandable section
+        with st.expander("📋 View All Collaboration Details"):
+            all_collab_data = []
+            for collab in collaborations:
+                try:
+                    all_collab_data.append({
+                        'Researcher': str(collab['r1']['name']),
+                        'Researcher Role': str(collab.get('r1_role', 'Unknown')),
+                        'Collaborator': str(collab['r2']['name']),
+                        'Collaborator Role': str(collab.get('r2_role', 'Unknown')),
+                        'Grant Title': str(collab['g'].get('title', 'Unknown Grant')),
+                        'Grant Amount': safe_format_amount(collab['g'].get('amount'))
+                    })
+                except Exception as e:
+                    # Skip problematic records
+                    continue
+            all_df = pd.DataFrame(all_collab_data)
+            st.dataframe(all_df, use_container_width=True)
+        
+        st.info("💡 Switch to the Graph Visualization page for interactive network view")
     
     # Example queries
     st.divider()
