@@ -23,7 +23,7 @@ class Config:
     LLM_MODELS = {
         "Claude 3.5 Sonnet": {
             "provider": "anthropic",
-            "model_id": "claude-3-5-sonnet-20241022",
+            "model_id": "claude-3-5-sonnet-20240620",
             "max_tokens": 4096
         },
         "Claude 4.0 Sonnet": {
