@@ -26,7 +26,8 @@ def init_handlers():
     neo4j_handler = Neo4jHandler(
         uri=st.secrets["neo4j"]["uri"],
         user=st.secrets["neo4j"]["user"],
-        password=st.secrets["neo4j"]["password"]
+        password=st.secrets["neo4j"]["password"],
+        database=st.secrets["neo4j"]["database"]
     )
     return neo4j_handler
 
@@ -45,13 +46,13 @@ with st.sidebar:
         "Select LLM",
         [
             "Claude 3.5 Sonnet",
-            "Claude 4.0 Sonnet",
+            "Claude 4.0 Sonnet", 
             "Claude 4.5 Sonnet",
             "GPT-4o",
             "Gemini 2.0 Flash",
             "DeepSeek"
         ],
-        index=2
+        index=3  # Default to GPT-4o since Anthropic has API issues
     )
     
     st.divider()
