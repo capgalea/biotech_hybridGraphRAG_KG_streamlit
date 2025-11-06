@@ -5,6 +5,15 @@ import plotly.graph_objects as go
 from utils.neo4j_handler import Neo4jHandler
 from utils.query_processor import QueryProcessor
 
+# Try to import folium with fallback
+try:
+    import folium
+    from streamlit_folium import st_folium
+    FOLIUM_AVAILABLE = True
+except ImportError:
+    FOLIUM_AVAILABLE = False
+    st.warning("Folium not available. Map visualization will be disabled.")
+
 def safe_format_amount(amount):
     """Safely format amount as currency, handling string/int/float/None values"""
     if amount is None:
@@ -81,8 +90,9 @@ with tab1:
                 
                 # Data table
                 with st.expander("📋 View Data Table"):
-                    df['total_funding'] = df['total_funding'].apply(safe_format_amount)
-                    st.dataframe(df, use_container_width=True)
+                    df_display = df.copy()
+                    df_display['total_funding'] = df_display['total_funding'].apply(safe_format_amount)
+                    st.dataframe(df_display, use_container_width=True)
             else:
                 st.info("No data available")
                 
@@ -265,6 +275,109 @@ with tab4:
                     
                     # Create DataFrame for display
                     df = pd.DataFrame(collab_data)
+                    
+                    # Add map visualization
+                    st.subheader("🗺️ Collaborator Locations")
+                    
+                    if FOLIUM_AVAILABLE:
+                        # Get collaborator locations
+                        try:
+                            locations = query_processor.get_collaborator_locations(researcher_input)
+                            
+                            if locations:
+                                # Create map centered on Australia
+                                map_center = [-25.2744, 133.7751]  # Australia center
+                                m = folium.Map(location=map_center, zoom_start=5)
+                                
+                                # Add markers for each collaborator location
+                                for loc in locations:
+                                    popup_text = f"""
+                                    <b>{loc['collaborator']}</b><br>
+                                    Institution: {loc['institution']}<br>
+                                    City: {loc['city']}, {loc['state']}<br>
+                                    Collaborations: {loc['collaboration_count']}
+                                    """
+                                    
+                                    # Color code by collaboration count
+                                    if loc['collaboration_count'] >= 5:
+                                        color = 'red'
+                                    elif loc['collaboration_count'] >= 3:
+                                        color = 'orange'
+                                    else:
+                                        color = 'blue'
+                                    
+                                    folium.Marker(
+                                        location=[loc['latitude'], loc['longitude']],
+                                        popup=folium.Popup(popup_text, max_width=300),
+                                        tooltip=f"{loc['collaborator']} ({loc['city']})",
+                                        icon=folium.Icon(color=color, icon='user')
+                                    ).add_to(m)
+                                
+                                # Display map
+                                map_data = st_folium(m, width=700, height=500)
+                                
+                                # Add legend
+                                st.markdown("""
+                                **Map Legend:**
+                                - 🔴 Red: 5+ collaborations
+                                - 🟠 Orange: 3-4 collaborations  
+                                - 🔵 Blue: 1-2 collaborations
+                                """)
+                                
+                                # Location summary
+                                col1, col2, col3 = st.columns(3)
+                                
+                                with col1:
+                                    unique_cities = len(set(loc['city'] for loc in locations))
+                                    st.metric("Cities", unique_cities)
+                                
+                                with col2:
+                                    unique_states = len(set(loc['state'] for loc in locations))
+                                    st.metric("States/Territories", unique_states)
+                                
+                                with col3:
+                                    total_collabs = sum(loc['collaboration_count'] for loc in locations)
+                                    st.metric("Total Collaborations", total_collabs)
+                                
+                            else:
+                                st.info("No location data available for collaborators. This may be because institutions are not recognized in our database.")
+                        
+                        except Exception as e:
+                            st.warning(f"Could not load location data: {str(e)}")
+                    else:
+                        # Fallback: Show location data in a table format
+                        try:
+                            locations = query_processor.get_collaborator_locations(researcher_input)
+                            
+                            if locations:
+                                st.info("Interactive map not available. Showing location data in table format:")
+                                
+                                # Create DataFrame for location data
+                                location_df = pd.DataFrame(locations)
+                                location_df = location_df[['collaborator', 'institution', 'city', 'state', 'collaboration_count']]
+                                location_df.columns = ['Collaborator', 'Institution', 'City', 'State', 'Collaborations']
+                                
+                                st.dataframe(location_df, use_container_width=True)
+                                
+                                # Location summary
+                                col1, col2, col3 = st.columns(3)
+                                
+                                with col1:
+                                    unique_cities = len(set(loc['city'] for loc in locations))
+                                    st.metric("Cities", unique_cities)
+                                
+                                with col2:
+                                    unique_states = len(set(loc['state'] for loc in locations))
+                                    st.metric("States/Territories", unique_states)
+                                
+                                with col3:
+                                    total_collabs = sum(loc['collaboration_count'] for loc in locations)
+                                    st.metric("Total Collaborations", total_collabs)
+                            else:
+                                st.info("No location data available for collaborators.")
+                        
+                        except Exception as e:
+                            st.warning(f"Could not load location data: {str(e)}")
                     
                     st.subheader(f"🤝 Unique Collaborators ({len(unique_collaborators)})")
                     st.dataframe(df, use_container_width=True)
