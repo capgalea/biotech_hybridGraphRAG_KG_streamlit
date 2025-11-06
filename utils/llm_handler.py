@@ -1084,3 +1084,86 @@ Summary:"""
             insights.append(f"Research areas: {', '.join(list(areas)[:3])}")
         
         return insights
+
+    def process_query(self, prompt: str, **kwargs) -> str:
+        """
+        Process a general query/prompt with the selected LLM
+        Args:
+            prompt: The prompt/query to process
+            **kwargs: Additional parameters (for compatibility)
+        Returns:
+            str: The LLM response
+        """
+        if not self.client:
+            return "LLM client not available. Please check your configuration."
+
+        try:
+            if "claude" in self.model_name.lower():
+                # Claude API
+                if hasattr(self.client, 'messages'):
+                    # Anthropic client (newer versions)
+                    response = self.client.messages.create(
+                        model=self.model_id,
+                        max_tokens=4000,
+                        temperature=0.7,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    return response.content[0].text
+                else:
+                    # Older Anthropic client
+                    response = self.client.completions.create(
+                        model=self.model_id,
+                        prompt=f"\n\nHuman: {prompt}\n\nAssistant:",
+                        max_tokens_to_sample=4000,
+                        temperature=0.7
+                    )
+                    return response.completion
+
+            elif "gpt" in self.model_name.lower():
+                response = self.client.chat.completions.create(
+                    model=self.model_id,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=4000,
+                    temperature=0.7
+                )
+                return response.choices[0].message.content
+
+            elif "gemini" in self.model_name.lower():
+                model = genai.GenerativeModel(self.model_id)
+                response = model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        max_output_tokens=4000,
+                        temperature=0.7
+                    )
+                )
+                return response.text
+
+            elif "deepseek" in self.model_name.lower():
+                response = self.client.chat.completions.create(
+                    model=self.model_id,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=4000,
+                    temperature=0.7
+                )
+                return response.choices[0].message.content
+
+            else:
+                return f"Unsupported model: {self.model_name}"
+
+        except Exception as e:
+            logger.error(f"Error processing query with {self.model_name}: {str(e)}")
+            return f"Error processing query: {str(e)}"
+
+    def _get_model_id(self) -> str:
+        """Get the actual model ID for API calls"""
+        model_mapping = {
+            "Claude 3.7 Sonnet": "claude-3-7-sonnet-20250219",
+            "Claude 4.0 Sonnet": "claude-3-7-sonnet-20250219", 
+            "Claude 4.5 Sonnet": "claude-3-7-sonnet-20250219",
+            "GPT-4o": "gpt-4o",
+            "GPT-4o Mini": "gpt-4o-mini",
+            "Gemini 2.0 Flash": "gemini-2.0-flash-exp",
+            "DeepSeek V3": "deepseek-chat"
+        }
+        return model_mapping.get(self.model_name, "claude-3-5-sonnet-20240620")
