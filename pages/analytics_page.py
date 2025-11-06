@@ -5,6 +5,24 @@ import plotly.graph_objects as go
 from utils.neo4j_handler import Neo4jHandler
 from utils.query_processor import QueryProcessor
 
+def safe_format_amount(amount):
+    """Safely format amount as currency, handling string/int/float/None values"""
+    if amount is None:
+        return "N/A"
+    try:
+        # Convert to float first, then format
+        if isinstance(amount, str):
+            # Remove any existing currency symbols and commas
+            amount_clean = amount.replace('$', '').replace(',', '').strip()
+            if amount_clean == '' or amount_clean.lower() == 'n/a':
+                return "N/A"
+            amount_float = float(amount_clean)
+        else:
+            amount_float = float(amount)
+        return f"${amount_float:,.0f}"
+    except (ValueError, TypeError):
+        return "N/A"
+
 st.set_page_config(page_title="Analytics Dashboard", page_icon="📊", layout="wide")
 
 # Initialize Neo4j
@@ -13,7 +31,8 @@ def init_neo4j():
     return Neo4jHandler(
         uri=st.secrets["neo4j"]["uri"],
         user=st.secrets["neo4j"]["user"],
-        password=st.secrets["neo4j"]["password"]
+        password=st.secrets["neo4j"]["password"],
+        database=st.secrets["neo4j"]["database"]
     )
 
 neo4j_handler = init_neo4j()
@@ -62,7 +81,7 @@ with tab1:
                 
                 # Data table
                 with st.expander("📋 View Data Table"):
-                    df['total_funding'] = df['total_funding'].apply(lambda x: f"${x:,.0f}")
+                    df['total_funding'] = df['total_funding'].apply(safe_format_amount)
                     st.dataframe(df, use_container_width=True)
             else:
                 st.info("No data available")
@@ -115,13 +134,17 @@ with tab2:
             with col2:
                 st.metric("Total Grants", df['grant_count'].sum())
             with col3:
-                st.metric("Total Funding", f"${df['total_funding'].sum():,.0f}")
+                total_sum = df['total_funding'].sum() if df['total_funding'].dtype in ['int64', 'float64'] else 0
+                st.metric("Total Funding", safe_format_amount(total_sum))
             
             # Detailed table
             with st.expander("📋 Detailed Breakdown"):
-                df['total_funding'] = df['total_funding'].apply(lambda x: f"${x:,.0f}")
-                df['avg_grant'] = (df['total_funding'].str.replace('$', '').str.replace(',', '').astype(float) / df['grant_count']).apply(lambda x: f"${x:,.0f}")
-                st.dataframe(df, use_container_width=True)
+                df_display = df.copy()
+                # Calculate average grant before formatting
+                df_display['avg_grant'] = df_display.apply(lambda row: safe_format_amount(row['total_funding'] / row['grant_count'] if row['grant_count'] > 0 else 0), axis=1)
+                # Format total funding after calculation
+                df_display['total_funding'] = df_display['total_funding'].apply(safe_format_amount)
+                st.dataframe(df_display, use_container_width=True)
         else:
             st.info("No data available")
             
@@ -185,8 +208,8 @@ with tab3:
             # Data table
             with st.expander("📋 View Trends Data"):
                 df_display = df.copy()
-                df_display['total_funding'] = df_display['total_funding'].apply(lambda x: f"${x:,.0f}")
-                df_display['avg_funding'] = df_display['avg_funding'].apply(lambda x: f"${x:,.0f}")
+                df_display['total_funding'] = df_display['total_funding'].apply(safe_format_amount)
+                df_display['avg_funding'] = df_display['avg_funding'].apply(safe_format_amount)
                 st.dataframe(df_display, use_container_width=True)
         else:
             st.info("No data available for the selected time period")
@@ -211,17 +234,71 @@ with tab4:
                 collaborations = query_processor.get_collaboration_network(researcher_input)
                 
                 if collaborations:
-                    st.success(f"Found {len(collaborations)} potential collaborations")
+                    # Get the actual researcher name from first result
+                    actual_name = collaborations[0]['r1']['name']
+                    st.success(f"Found {len(collaborations)} collaborations for **{actual_name}**")
                     
-                    # Create network visualization data
-                    df = pd.DataFrame(collaborations)
+                    # Process collaborations for better display
+                    collab_data = []
+                    unique_collaborators = set()
                     
-                    with st.expander("📋 View Collaboration Details"):
-                        st.dataframe(df, use_container_width=True)
+                    for collab in collaborations:
+                        try:
+                            collaborator = str(collab['r2']['name'])
+                            if collaborator not in unique_collaborators:
+                                unique_collaborators.add(collaborator)
+                                # Safely handle grant title
+                                grant_title = str(collab['g'].get('title', 'Unknown Grant'))
+                                if len(grant_title) > 100:
+                                    grant_title = grant_title[:100] + '...'
+                                
+                                collab_data.append({
+                                    'Collaborator': collaborator,
+                                    'Role': str(collab.get('r2_role', 'Unknown')),
+                                    'Grant Title': grant_title,
+                                    'Grant Amount': safe_format_amount(collab['g'].get('amount'))
+                                })
+                        except Exception as e:
+                            # Skip problematic collaboration records
+                            st.warning(f"Skipped problematic collaboration record: {str(e)}")
+                            continue
+                    
+                    # Create DataFrame for display
+                    df = pd.DataFrame(collab_data)
+                    
+                    st.subheader(f"🤝 Unique Collaborators ({len(unique_collaborators)})")
+                    st.dataframe(df, use_container_width=True)
+                    
+                    # Show all collaborations in expandable section
+                    with st.expander("📋 View All Collaboration Details"):
+                        all_collab_data = []
+                        for collab in collaborations:
+                            try:
+                                all_collab_data.append({
+                                    'Researcher': str(collab['r1']['name']),
+                                    'Researcher Role': str(collab.get('r1_role', 'Unknown')),
+                                    'Collaborator': str(collab['r2']['name']),
+                                    'Collaborator Role': str(collab.get('r2_role', 'Unknown')),
+                                    'Grant Title': str(collab['g'].get('title', 'Unknown Grant')),
+                                    'Grant Amount': safe_format_amount(collab['g'].get('amount'))
+                                })
+                            except Exception as e:
+                                # Skip problematic records
+                                continue
+                        all_df = pd.DataFrame(all_collab_data)
+                        st.dataframe(all_df, use_container_width=True)
                     
                     st.info("💡 Switch to the Graph Visualization page for interactive network view")
                 else:
-                    st.warning("No collaborations found for this researcher")
+                    # Try to find similar researcher names for suggestions
+                    suggestions = query_processor.get_researcher_suggestions(researcher_input)
+                    
+                    if suggestions:
+                        st.warning(f"No collaborations found for '{researcher_input}'. Did you mean:")
+                        for suggestion in suggestions:
+                            st.write(f"• {suggestion['name']}")
+                    else:
+                        st.warning("No collaborations found for this researcher")
                     
             except Exception as e:
                 st.error(f"Error: {str(e)}")
