@@ -152,13 +152,14 @@ class QueryProcessor:
         
         return self.neo4j.execute_cypher(cypher, {'name': partial_name, 'limit': limit})
     
-    def get_funding_trends(self, start_year: int, end_year: int) -> List[Dict]:
+    def get_funding_trends(self, start_year: int = 2000, end_year: int = 2024) -> List[Dict]:
         """
         Analyze funding trends over time
         """
         cypher = """
         MATCH (g:Grant)
         WHERE g.start_year >= $start_year AND g.start_year <= $end_year
+        AND g.amount IS NOT NULL AND g.amount > 0
         RETURN g.start_year as year, 
                count(g) as grant_count,
                sum(g.amount) as total_funding,
@@ -177,6 +178,7 @@ class QueryProcessor:
         """
         cypher = """
         MATCH (g:Grant)-[:HOSTED_BY]->(i:Institution)
+        WHERE g.amount IS NOT NULL AND g.amount > 0
         RETURN i.name as institution,
                count(g) as grant_count,
                sum(g.amount) as total_funding
@@ -192,6 +194,7 @@ class QueryProcessor:
         """
         cypher = """
         MATCH (g:Grant)-[:IN_AREA]->(a:ResearchArea)
+        WHERE g.amount IS NOT NULL AND g.amount > 0
         RETURN a.name as research_area,
                count(g) as grant_count,
                sum(g.amount) as total_funding
@@ -199,3 +202,94 @@ class QueryProcessor:
         """
         
         return self.neo4j.execute_cypher(cypher)
+    
+    def get_collaborator_locations(self, researcher_name: str) -> List[Dict]:
+        """
+        Get locations of collaborators based on their institutions
+        """
+        # Australian institution coordinates mapping
+        institution_coordinates = {
+            'University of Melbourne': {'lat': -37.7963, 'lon': 144.9614, 'city': 'Melbourne', 'state': 'VIC'},
+            'The University of Melbourne': {'lat': -37.7963, 'lon': 144.9614, 'city': 'Melbourne', 'state': 'VIC'},
+            'University of Sydney': {'lat': -33.8886, 'lon': 151.1873, 'city': 'Sydney', 'state': 'NSW'},
+            'The University of Sydney': {'lat': -33.8886, 'lon': 151.1873, 'city': 'Sydney', 'state': 'NSW'},
+            'University of New South Wales': {'lat': -33.9173, 'lon': 151.2313, 'city': 'Sydney', 'state': 'NSW'},
+            'The University of New South Wales': {'lat': -33.9173, 'lon': 151.2313, 'city': 'Sydney', 'state': 'NSW'},
+            'University of Queensland': {'lat': -27.4975, 'lon': 153.0137, 'city': 'Brisbane', 'state': 'QLD'},
+            'The University of Queensland': {'lat': -27.4975, 'lon': 153.0137, 'city': 'Brisbane', 'state': 'QLD'},
+            'Monash University': {'lat': -37.9105, 'lon': 145.1362, 'city': 'Melbourne', 'state': 'VIC'},
+            'Australian National University': {'lat': -35.2777, 'lon': 149.1185, 'city': 'Canberra', 'state': 'ACT'},
+            'The Australian National University': {'lat': -35.2777, 'lon': 149.1185, 'city': 'Canberra', 'state': 'ACT'},
+            'University of Adelaide': {'lat': -34.9205, 'lon': 138.6052, 'city': 'Adelaide', 'state': 'SA'},
+            'The University of Adelaide': {'lat': -34.9205, 'lon': 138.6052, 'city': 'Adelaide', 'state': 'SA'},
+            'University of Western Australia': {'lat': -31.9775, 'lon': 115.8170, 'city': 'Perth', 'state': 'WA'},
+            'The University of Western Australia': {'lat': -31.9775, 'lon': 115.8170, 'city': 'Perth', 'state': 'WA'},
+            'University of Tasmania': {'lat': -42.9019, 'lon': 147.3238, 'city': 'Hobart', 'state': 'TAS'},
+            'Griffith University': {'lat': -27.5546, 'lon': 153.0526, 'city': 'Brisbane', 'state': 'QLD'},
+            'Queensland University of Technology': {'lat': -27.4710, 'lon': 153.0234, 'city': 'Brisbane', 'state': 'QLD'},
+            'Deakin University': {'lat': -38.1500, 'lon': 144.3000, 'city': 'Geelong', 'state': 'VIC'},
+            'Macquarie University': {'lat': -33.7747, 'lon': 151.1107, 'city': 'Sydney', 'state': 'NSW'},
+            'University of Technology Sydney': {'lat': -33.8830, 'lon': 151.2005, 'city': 'Sydney', 'state': 'NSW'},
+            'Curtin University': {'lat': -32.0047, 'lon': 115.8950, 'city': 'Perth', 'state': 'WA'},
+            'RMIT University': {'lat': -37.8136, 'lon': 144.9631, 'city': 'Melbourne', 'state': 'VIC'},
+            'La Trobe University': {'lat': -37.7202, 'lon': 145.0485, 'city': 'Melbourne', 'state': 'VIC'},
+            'Flinders University': {'lat': -35.0267, 'lon': 138.5685, 'city': 'Adelaide', 'state': 'SA'},
+            'University of Wollongong': {'lat': -34.4054, 'lon': 150.8783, 'city': 'Wollongong', 'state': 'NSW'},
+            'James Cook University': {'lat': -19.3286, 'lon': 146.7574, 'city': 'Townsville', 'state': 'QLD'},
+            'University of Newcastle': {'lat': -32.8886, 'lon': 151.6947, 'city': 'Newcastle', 'state': 'NSW'},
+            'The University of Newcastle': {'lat': -32.8886, 'lon': 151.6947, 'city': 'Newcastle', 'state': 'NSW'},
+            'Western Sydney University': {'lat': -33.7616, 'lon': 150.7516, 'city': 'Sydney', 'state': 'NSW'},
+            'The University of New England': {'lat': -30.4833, 'lon': 151.6667, 'city': 'Armidale', 'state': 'NSW'},
+            'University of South Australia': {'lat': -34.9216, 'lon': 138.5965, 'city': 'Adelaide', 'state': 'SA'},
+            'Swinburne University of Technology': {'lat': -37.8226, 'lon': 145.0397, 'city': 'Melbourne', 'state': 'VIC'},
+            'Victoria University': {'lat': -37.7472, 'lon': 144.8942, 'city': 'Melbourne', 'state': 'VIC'},
+            'Edith Cowan University': {'lat': -31.8456, 'lon': 115.8466, 'city': 'Perth', 'state': 'WA'},
+            'Murdoch University': {'lat': -32.0686, 'lon': 115.8373, 'city': 'Perth', 'state': 'WA'},
+            'Charles Sturt University': {'lat': -33.3648, 'lon': 147.0649, 'city': 'Bathurst', 'state': 'NSW'},
+            'Bond University': {'lat': -28.0739, 'lon': 153.4285, 'city': 'Gold Coast', 'state': 'QLD'},
+            'University of the Sunshine Coast': {'lat': -26.7122, 'lon': 153.0773, 'city': 'Sunshine Coast', 'state': 'QLD'},
+            'Southern Cross University': {'lat': -28.7870, 'lon': 153.4615, 'city': 'Lismore', 'state': 'NSW'},
+            'Charles Darwin University': {'lat': -12.3714, 'lon': 130.8748, 'city': 'Darwin', 'state': 'NT'},
+            'Australian Catholic University': {'lat': -33.8688, 'lon': 151.2093, 'city': 'Sydney', 'state': 'NSW'},
+            'University of Canberra': {'lat': -35.2386, 'lon': 149.0906, 'city': 'Canberra', 'state': 'ACT'}
+        }
+        
+        cypher = """
+        MATCH (r1:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
+              <-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]-(r2:Researcher)
+        MATCH (g)-[:HOSTED_BY]->(i:Institution)
+        WHERE r1 <> r2 
+          AND toLower(r1.name) CONTAINS toLower($name)
+        RETURN DISTINCT r2.name as collaborator, i.name as institution, 
+               count(g) as collaboration_count
+        ORDER BY collaboration_count DESC
+        """
+        
+        results = self.neo4j.execute_cypher(cypher, {'name': researcher_name})
+        
+        # Add coordinates to results
+        locations = []
+        for result in results:
+            institution = result.get('institution', '')
+            collaborator = result.get('collaborator', '')
+            count = result.get('collaboration_count', 0)
+            
+            # Try to find coordinates for the institution
+            coords = None
+            for inst_name, coord_data in institution_coordinates.items():
+                if inst_name.lower() in institution.lower() or institution.lower() in inst_name.lower():
+                    coords = coord_data
+                    break
+            
+            if coords:
+                locations.append({
+                    'collaborator': collaborator,
+                    'institution': institution,
+                    'collaboration_count': count,
+                    'latitude': coords['lat'],
+                    'longitude': coords['lon'],
+                    'city': coords['city'],
+                    'state': coords['state']
+                })
+        
+        return locations
