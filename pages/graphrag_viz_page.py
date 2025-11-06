@@ -5,6 +5,24 @@ from utils.neo4j_handler import Neo4jHandler
 import tempfile
 import os
 
+def safe_format_amount(amount):
+    """Safely format amount as currency, handling string/int/float/None values"""
+    if amount is None:
+        return "N/A"
+    try:
+        # Convert to float first, then format
+        if isinstance(amount, str):
+            # Remove any existing currency symbols and commas
+            amount_clean = amount.replace('$', '').replace(',', '').strip()
+            if amount_clean == '' or amount_clean.lower() == 'n/a':
+                return "N/A"
+            amount_float = float(amount_clean)
+        else:
+            amount_float = float(amount)
+        return f"${amount_float:,.0f}"
+    except (ValueError, TypeError):
+        return "N/A"
+
 st.set_page_config(page_title="Graph Visualization", page_icon="🌐", layout="wide")
 
 # Initialize Neo4j handler
@@ -13,7 +31,8 @@ def init_neo4j():
     return Neo4jHandler(
         uri=st.secrets["neo4j"]["uri"],
         user=st.secrets["neo4j"]["user"],
-        password=st.secrets["neo4j"]["password"]
+        password=st.secrets["neo4j"]["password"],
+        database=st.secrets["neo4j"]["database"]
     )
 
 neo4j_handler = init_neo4j()
@@ -37,6 +56,8 @@ with st.sidebar:
     st.subheader("Physics Settings")
     physics_enabled = st.checkbox("Enable Physics", value=True)
     
+    repulsion = 200
+    spring_length = 150
     if physics_enabled:
         repulsion = st.slider("Node Repulsion", 50, 500, 200)
         spring_length = st.slider("Edge Length", 50, 300, 150)
@@ -77,7 +98,7 @@ if viz_mode == "Random Sample":
                 data = neo4j_handler.execute_cypher(cypher_query)
                 
                 # Create network
-                net = Network(height="700px", width="100%", bgcolor="#222222", font_color="white")
+                net = Network(height="700px", width="100%", bgcolor="#222222")
                 
                 if physics_enabled:
                     net.barnes_hut(gravity=-5000, central_gravity=0.3, 
@@ -87,6 +108,7 @@ if viz_mode == "Random Sample":
                 
                 # Add nodes and edges
                 for record in data:
+                    grant = None
                     # Add grant node
                     if record.get('g'):
                         grant = record['g']
@@ -94,13 +116,13 @@ if viz_mode == "Random Sample":
                             grant['application_id'],
                             label=grant.get('title', 'Unknown')[:50],
                             color="#FF6B6B",
-                            title=f"<b>{grant.get('title', 'Unknown')}</b><br>Amount: ${grant.get('amount', 0):,}",
+                            title=f"<b>{grant.get('title', 'Unknown')}</b><br>Amount: {safe_format_amount(grant.get('amount'))}",
                             shape="dot",
                             size=20
                         )
                     
                     # Add researcher node
-                    if record.get('r') and include_researchers:
+                    if record.get('r') and include_researchers and grant:
                         researcher = record['r']
                         r_id = f"r_{researcher.get('name', 'unknown')}"
                         net.add_node(
@@ -115,7 +137,7 @@ if viz_mode == "Random Sample":
                                    title="Principal Investigator")
                     
                     # Add institution node
-                    if record.get('i') and include_institutions:
+                    if record.get('i') and include_institutions and grant:
                         institution = record['i']
                         i_id = f"i_{institution.get('name', 'unknown')}"
                         net.add_node(
@@ -198,7 +220,7 @@ elif viz_mode == "Node Browser":
                 data = neo4j_handler.execute_cypher(cypher_query)
                 
                 # Create visualization
-                net = Network(height="700px", width="100%", bgcolor="#1E1E1E", font_color="white")
+                net = Network(height="700px", width="100%", bgcolor="#1E1E1E")
                 
                 if physics_enabled:
                     net.barnes_hut(gravity=-3000, spring_length=spring_length)
@@ -259,7 +281,7 @@ LIMIT 20""",
             try:
                 data = neo4j_handler.execute_cypher(custom_query)
                 
-                net = Network(height="700px", width="100%", bgcolor="#222222", font_color="white")
+                net = Network(height="700px", width="100%", bgcolor="#222222")
                 
                 if physics_enabled:
                     net.barnes_hut()
