@@ -1,5 +1,5 @@
 from neo4j import GraphDatabase
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -9,15 +9,16 @@ logger = logging.getLogger(__name__)
 class Neo4jHandler:
     """Handler for Neo4j database operations"""
     
-    def __init__(self, uri: str, user: str, password: str):
+    def __init__(self, uri: str, user: str, password: str, database: str = "neo4j"):
         """Initialize Neo4j connection"""
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        self.database = database
         self.verify_connection()
     
     def verify_connection(self):
         """Verify database connection"""
         try:
-            with self.driver.session() as session:
+            with self.driver.session(database=self.database) as session:
                 result = session.run("RETURN 1 as test")
                 result.single()
             logger.info("Neo4j connection successful")
@@ -35,7 +36,7 @@ class Neo4jHandler:
         Get database schema information
         Returns node labels, relationship types, and properties
         """
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             # Get node labels
             node_result = session.run("CALL db.labels()")
             node_labels = [record["label"] for record in node_result]
@@ -81,13 +82,13 @@ class Neo4jHandler:
         
         return text
     
-    def execute_cypher(self, query: str, parameters: Dict = None) -> List[Dict]:
+    def execute_cypher(self, query: str, parameters: Optional[Dict] = None) -> List[Dict]:
         """
         Execute a Cypher query and return results as list of dictionaries
         """
         try:
-            with self.driver.session() as session:
-                result = session.run(query, parameters or {})
+            with self.driver.session(database=self.database) as session:
+                result = session.run(query, parameters or {})  # type: ignore
                 records = []
                 for record in result:
                     record_dict = {}
@@ -111,22 +112,26 @@ class Neo4jHandler:
         """Get database statistics"""
         stats = {}
         
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             # Count grants
             result = session.run("MATCH (g:Grant) RETURN count(g) as count")
-            stats['grants'] = result.single()['count']
+            record = result.single()
+            stats['grants'] = record['count'] if record else 0
             
             # Count researchers
             result = session.run("MATCH (r:Researcher) RETURN count(r) as count")
-            stats['researchers'] = result.single()['count']
+            record = result.single()
+            stats['researchers'] = record['count'] if record else 0
             
             # Count institutions
             result = session.run("MATCH (i:Institution) RETURN count(i) as count")
-            stats['institutions'] = result.single()['count']
+            record = result.single()
+            stats['institutions'] = record['count'] if record else 0
             
             # Count relationships
             result = session.run("MATCH ()-[r]->() RETURN count(r) as count")
-            stats['relationships'] = result.single()['count']
+            record = result.single()
+            stats['relationships'] = record['count'] if record else 0
         
         return stats
     
@@ -152,7 +157,7 @@ class Neo4jHandler:
             return []
     
     def hybrid_search(self, query_embedding: List[float], 
-                     cypher_filter: str = None, limit: int = 10) -> List[Dict]:
+                     cypher_filter: Optional[str] = None, limit: int = 10) -> List[Dict]:
         """
         Perform hybrid search combining vector similarity and graph traversal
         """
@@ -185,25 +190,26 @@ class Neo4jHandler:
             logger.warning(f"Hybrid search failed: {str(e)}")
             return []
     
-    def get_grant_by_id(self, application_id: int) -> Dict:
+    def get_grant_by_id(self, application_id: str) -> Dict:
         """Get a specific grant by ID"""
         cypher = """
         MATCH (g:Grant {application_id: $id})
-        OPTIONAL MATCH (g)<-[:PRINCIPAL_INVESTIGATOR]-(r:Researcher)
+        OPTIONAL MATCH (g)<-[:PRINCIPAL_INVESTIGATOR]-(pi:Researcher)
+        OPTIONAL MATCH (g)<-[:INVESTIGATOR]-(inv:Researcher)
         OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
         OPTIONAL MATCH (g)-[:IN_AREA]->(a:ResearchArea)
-        RETURN g, r, i, collect(a.name) as areas
+        RETURN g, pi, collect(DISTINCT inv) as investigators, i, collect(DISTINCT a.name) as areas
         """
         
-        results = self.execute_cypher(cypher, {'id': application_id})
+        results = self.execute_cypher(cypher, {'id': str(application_id)})
         return results[0] if results else {}
     
     def get_grants_by_researcher(self, researcher_name: str) -> List[Dict]:
-        """Get all grants for a researcher"""
+        """Get all grants for a researcher (as PI or investigator)"""
         cypher = """
-        MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR]->(g:Grant)
+        MATCH (r:Researcher)-[rel:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
         WHERE r.name CONTAINS $name
-        RETURN g, r
+        RETURN g, r, type(rel) as role
         """
         
         return self.execute_cypher(cypher, {'name': researcher_name})
