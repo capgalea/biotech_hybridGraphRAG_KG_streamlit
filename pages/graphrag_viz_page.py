@@ -152,11 +152,25 @@ if viz_mode == "Random Sample":
                                    title="Hosted By")
                 
                 # Save and display
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w') as f:
-                    net.save_graph(f.name)
-                    with open(f.name, 'r', encoding='utf-8') as file:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w') as f:
+                        temp_file_path = f.name
+                    
+                    net.save_graph(temp_file_path)
+                    
+                    with open(temp_file_path, 'r', encoding='utf-8') as file:
                         html_content = file.read()
-                    os.unlink(f.name)
+                    
+                    # Safe cleanup with retry logic for Windows
+                    try:
+                        os.unlink(temp_file_path)
+                    except PermissionError:
+                        # File might still be in use, schedule for cleanup later
+                        pass
+                except Exception as temp_error:
+                    st.warning(f"Temporary file handling warning: {temp_error}")
+                    # Fallback: create HTML content directly without temp file
+                    html_content = net.generate_html()
                 
                 components.html(html_content, height=720, scrolling=True)
                 
@@ -251,11 +265,25 @@ elif viz_mode == "Node Browser":
                                 added_nodes.add(node_id)
                 
                 # Save and display
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w') as f:
-                    net.save_graph(f.name)
-                    with open(f.name, 'r', encoding='utf-8') as file:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w') as f:
+                        temp_file_path = f.name
+                    
+                    net.save_graph(temp_file_path)
+                    
+                    with open(temp_file_path, 'r', encoding='utf-8') as file:
                         html_content = file.read()
-                    os.unlink(f.name)
+                    
+                    # Safe cleanup with retry logic for Windows
+                    try:
+                        os.unlink(temp_file_path)
+                    except PermissionError:
+                        # File might still be in use, schedule for cleanup later
+                        pass
+                except Exception as temp_error:
+                    st.warning(f"Temporary file handling warning: {temp_error}")
+                    # Fallback: create HTML content directly without temp file
+                    html_content = net.generate_html()
                 
                 components.html(html_content, height=720, scrolling=True)
                 
@@ -298,11 +326,25 @@ LIMIT 20""",
                                 added_nodes.add(node_id)
                 
                 # Save and display
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w') as f:
-                    net.save_graph(f.name)
-                    with open(f.name, 'r', encoding='utf-8') as file:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w') as f:
+                        temp_file_path = f.name
+                    
+                    net.save_graph(temp_file_path)
+                    
+                    with open(temp_file_path, 'r', encoding='utf-8') as file:
                         html_content = file.read()
-                    os.unlink(f.name)
+                    
+                    # Safe cleanup with retry logic for Windows
+                    try:
+                        os.unlink(temp_file_path)
+                    except PermissionError:
+                        # File might still be in use, schedule for cleanup later
+                        pass
+                except Exception as temp_error:
+                    st.warning(f"Temporary file handling warning: {temp_error}")
+                    # Fallback: create HTML content directly without temp file
+                    html_content = net.generate_html()
                 
                 components.html(html_content, height=720, scrolling=True)
                 
