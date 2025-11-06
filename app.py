@@ -45,7 +45,7 @@ with st.sidebar:
     llm_option = st.selectbox(
         "Select LLM",
         [
-            "Claude 3.5 Sonnet",
+            "Claude 3.7 Sonnet",
             "Claude 4.0 Sonnet", 
             "Claude 4.5 Sonnet",
             "GPT-4o",
@@ -53,6 +53,13 @@ with st.sidebar:
             "DeepSeek"
         ],
         index=3  # Default to GPT-4o since Anthropic has API issues
+    )
+    
+    # Google Search Integration Toggle
+    enable_search = st.checkbox(
+        "🔍 Include Web Search",
+        value=True,
+        help="Enhance summaries with Google Search results for additional context and references"
     )
     
     st.divider()
@@ -150,7 +157,7 @@ if st.button("🔎 Search", type="primary", use_container_width=True):
                 query_processor = QueryProcessor(neo4j_handler, llm_handler)
                 
                 # Process query
-                results = query_processor.process_query(query)
+                results = query_processor.process_query(query, enable_search)
                 
                 # Store results
                 st.session_state.current_results = results
@@ -188,6 +195,13 @@ if st.session_state.current_results:
                 file_name="grant_results.csv",
                 mime="text/csv"
             )
+            
+            # Footer note about result limitations
+            st.markdown("""
+            <div style='text-align: center; color: #888; font-size: 0.85em; margin-top: 10px; padding: 5px; background-color: #f8f9fa; border-radius: 5px;'>
+                📅 <strong>Note:</strong> Results show the 20 most recent grants ordered by start year (newest first)
+            </div>
+            """, unsafe_allow_html=True)
     
     # Text summary
     st.subheader("📝 Summary")
