@@ -55,6 +55,7 @@ class DataIngestion:
             "CREATE INDEX grant_title IF NOT EXISTS FOR (g:Grant) ON (g.title)",
             "CREATE INDEX grant_amount IF NOT EXISTS FOR (g:Grant) ON (g.amount)",
             "CREATE INDEX grant_year IF NOT EXISTS FOR (g:Grant) ON (g.start_year)",
+            "CREATE INDEX grant_status IF NOT EXISTS FOR (g:Grant) ON (g.grant_status)",
             "CREATE INDEX researcher_orcid IF NOT EXISTS FOR (r:Researcher) ON (r.orcid_id)",
         ]
         
@@ -81,11 +82,12 @@ class DataIngestion:
             g.date_announced = $date_announced,
             g.funding_body = $funding_body,
             g.broad_research_area = $broad_research_area,
-            g.field_of_research = $field_of_research
+            g.field_of_research = $field_of_research,
+            g.grant_status = $grant_status
         """
         
         session.run(grant_cypher, {  # type: ignore
-            'application_id': int(grant_data['Application_ID']),
+            'application_id': str(grant_data['Application_ID']),
             'title': grant_data['Grant_Title'],
             'description': grant_data.get('Plain_Description', ''),
             'grant_type': grant_data.get('Grant_Type', ''),
@@ -95,7 +97,8 @@ class DataIngestion:
             'date_announced': grant_data.get('Date_Announced', ''),
             'funding_body': grant_data.get('Funding_Body', ''),
             'broad_research_area': grant_data.get('Broad_Research_Area', ''),
-            'field_of_research': grant_data.get('Field_of_Research', '')
+            'field_of_research': grant_data.get('Field_of_Research', ''),
+            'grant_status': grant_data.get('Grant_Status', '')
         })
         
         # Create Researcher node and relationship
@@ -111,8 +114,26 @@ class DataIngestion:
             session.run(researcher_cypher, {  # type: ignore
                 'name': grant_data['CIA_Name'],
                 'orcid_id': grant_data.get('CIA_ORCID_ID', ''),
-                'application_id': int(grant_data['Application_ID'])
+                'application_id': str(grant_data['Application_ID'])
             })
+        
+        # Create Investigator nodes and relationships
+        if pd.notna(grant_data.get('Investigators')):
+            investigators = grant_data['Investigators'].split(';')
+            for investigator_name in investigators:
+                investigator_name = investigator_name.strip()
+                if investigator_name:
+                    investigator_cypher = """
+                    MERGE (i:Researcher {name: $name})
+                    WITH i
+                    MATCH (g:Grant {application_id: $application_id})
+                    MERGE (i)-[:INVESTIGATOR]->(g)
+                    """
+                    
+                    session.run(investigator_cypher, {  # type: ignore
+                        'name': investigator_name,
+                        'application_id': str(grant_data['Application_ID'])
+                    })
         
         # Create Institution node and relationship
         if pd.notna(grant_data.get('Admin_Institution')):
@@ -125,7 +146,7 @@ class DataIngestion:
             
             session.run(institution_cypher, {  # type: ignore
                 'name': grant_data['Admin_Institution'],
-                'application_id': int(grant_data['Application_ID'])
+                'application_id': str(grant_data['Application_ID'])
             })
         
         # Create ResearchArea node and relationship
@@ -139,7 +160,7 @@ class DataIngestion:
             
             session.run(area_cypher, {  # type: ignore
                 'name': grant_data['Broad_Research_Area'],
-                'application_id': int(grant_data['Application_ID'])
+                'application_id': str(grant_data['Application_ID'])
             })
         
         # Parse and create detailed research field nodes
@@ -157,7 +178,7 @@ class DataIngestion:
                     
                     session.run(field_cypher, {  # type: ignore
                         'name': field,
-                        'application_id': int(grant_data['Application_ID']),
+                        'application_id': str(grant_data['Application_ID']),
                         'level': i
                     })
     
@@ -210,7 +231,9 @@ class DataIngestion:
             ("Researchers", "MATCH (r:Researcher) RETURN count(r) as count"),
             ("Institutions", "MATCH (i:Institution) RETURN count(i) as count"),
             ("Research Areas", "MATCH (a:ResearchArea) RETURN count(a) as count"),
-            ("Relationships", "MATCH ()-[r]->() RETURN count(r) as count"),
+            ("Principal Investigators", "MATCH ()-[r:PRINCIPAL_INVESTIGATOR]->() RETURN count(r) as count"),
+            ("Investigators", "MATCH ()-[r:INVESTIGATOR]->() RETURN count(r) as count"),
+            ("Total Relationships", "MATCH ()-[r]->() RETURN count(r) as count"),
         ]
         
         with self.driver.session(database=self.database) as session:
