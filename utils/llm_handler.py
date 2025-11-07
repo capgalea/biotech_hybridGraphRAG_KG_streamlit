@@ -503,14 +503,17 @@ Important Instructions:
 6. For researcher names, be EXTREMELY PRECISE - use exact name matching only, no partial matching
 7. For researcher names in quotes, match EXACTLY that name using = (equals), never use CONTAINS for names
 8. NEVER match partial name components - "jian li" should NOT match "wenjian liu" or similar
-9. Return relevant properties including descriptions, amounts, dates
+9. Return comprehensive grant information using ONLY the actual properties that exist in the database
 10. Include ORDER BY g.start_year DESC LIMIT 20 in all grant queries
+11. ACTUAL Grant properties: title, grant_status, amount, description, start_year, end_date, grant_type, funding_body, broad_research_area, field_of_research, application_id, date_announced
+12. ACTUAL Researcher properties: name, orcid_id (NO title property exists)
+13. Use proper aliases: g.title as grant_title, g.grant_status as status, r.name as researcher_name, i.name as institution_name
+14. DO NOT query non-existent fields like g.start_date, r.title, g.agency, g.end_year - use only the actual properties listed above
 
-Example queries (always return the 20 most recent grants):
-- For "grants about cancer": MATCH (g:Grant) WHERE g.title CONTAINS 'cancer' OR g.description CONTAINS 'cancer' RETURN DISTINCT g ORDER BY g.start_year DESC LIMIT 20
-- For "grants for Glenn King": MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant) WHERE (toLower(r.name) = 'glenn king' OR toLower(r.name) = 'king, glenn' OR toLower(r.name) = 'dr glenn king' OR toLower(r.name) = 'prof glenn king') OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution) RETURN DISTINCT g.title, g.amount, g.description, g.start_year, r.name, i.name ORDER BY g.start_year DESC LIMIT 20
-- For "find grants for 'jian li'": MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant) WHERE (toLower(r.name) = 'jian li' OR toLower(r.name) = 'li, jian' OR toLower(r.name) = 'dr jian li' OR toLower(r.name) = 'prof jian li') OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution) RETURN DISTINCT g.title, g.amount, g.description, g.start_year, r.name, i.name ORDER BY g.start_year DESC LIMIT 20
-- For "researchers at University of Melbourne": MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR]->(g:Grant)-[:HOSTED_BY]->(i:Institution) WHERE i.name CONTAINS 'Melbourne' RETURN DISTINCT r, g, i ORDER BY g.start_year DESC LIMIT 20
+Example queries using ONLY actual database properties (always return comprehensive grant information from the 20 most recent grants):
+- For "grants about cancer": MATCH (g:Grant) OPTIONAL MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g) OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution) WHERE g.title CONTAINS 'cancer' OR g.description CONTAINS 'cancer' WITH g.title as grant_title, g.grant_status as status, g.amount as amount, g.description as description, g.start_year as start_year, g.end_date as end_date, g.grant_type as grant_type, g.funding_body as funding_body, g.broad_research_area as broad_research_area, g.field_of_research as field_of_research, g.application_id as application_id, g.date_announced as date_announced, collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT r.orcid_id)[0] as researcher_orcid, collect(DISTINCT i.name)[0] as institution_name RETURN DISTINCT grant_title, status, amount, description, start_year, end_date, grant_type, funding_body, broad_research_area, field_of_research, application_id, date_announced, researcher_name, researcher_orcid as orcid_id, institution_name ORDER BY start_year DESC LIMIT 20
+- For "grants for Glenn King": MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant) WHERE (toLower(r.name) = 'glenn king' OR toLower(r.name) = 'king, glenn' OR toLower(r.name) = 'dr glenn king' OR toLower(r.name) = 'prof glenn king') OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution) WITH g.title as grant_title, g.grant_status as status, g.amount as amount, g.description as description, g.start_year as start_year, g.end_date as end_date, g.grant_type as grant_type, g.funding_body as funding_body, g.broad_research_area as broad_research_area, g.field_of_research as field_of_research, g.application_id as application_id, g.date_announced as date_announced, collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT r.orcid_id)[0] as researcher_orcid, collect(DISTINCT i.name)[0] as institution_name RETURN DISTINCT grant_title, status, amount, description, start_year, end_date, grant_type, funding_body, broad_research_area, field_of_research, application_id, date_announced, researcher_name, researcher_orcid as orcid_id, institution_name ORDER BY start_year DESC LIMIT 20
+- For "all grants": MATCH (g:Grant) OPTIONAL MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g) OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution) WITH g.title as grant_title, g.grant_status as status, g.amount as amount, g.description as description, g.start_year as start_year, g.end_date as end_date, g.grant_type as grant_type, g.funding_body as funding_body, g.broad_research_area as broad_research_area, g.field_of_research as field_of_research, g.application_id as application_id, g.date_announced as date_announced, collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT r.orcid_id)[0] as researcher_orcid, collect(DISTINCT i.name)[0] as institution_name RETURN DISTINCT grant_title, status, amount, description, start_year, end_date, grant_type, funding_body, broad_research_area, field_of_research, application_id, date_announced, researcher_name, researcher_orcid as orcid_id, institution_name ORDER BY start_year DESC LIMIT 20
 
 Cypher Query:"""
 
@@ -674,6 +677,19 @@ Cypher Query:"""
         # Look for names in quotes like 'raymond norton' or "raymond norton"
         quoted_names = re.findall(r"['\"]([^'\"]+)['\"]", natural_query)
         
+        # Look for common researcher name patterns without quotes
+        # Pattern: "grants for [first name] [last name]" or "find [first name] [last name]"
+        name_patterns = [
+            r'(?:grants?\s+for|find\s+(?:grants?\s+for\s+)?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)',
+            r'(?:researcher|scientist|investigator)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)',
+            r'\b([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:grants?|research|work)'
+        ]
+        
+        researcher_names = []
+        for pattern in name_patterns:
+            matches = re.findall(pattern, natural_query, re.IGNORECASE)
+            researcher_names.extend(matches)
+        
         # Check for specific researcher name patterns
         if quoted_names:
             # Handle quoted researcher names
@@ -694,11 +710,46 @@ Cypher Query:"""
                 MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
                 WHERE r.name CONTAINS '{researcher_name}'
                 OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
-                RETURN DISTINCT g.title, g.amount, g.start_year, g.description, g.funding_body,
-                       r.name as researcher, i.name as institution
-                ORDER BY g.start_year DESC
+                WITH g.title as grant_title, g.amount as amount, g.start_year as start_year, g.description as description, g.funding_body as funding_body,
+                     collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT i.name)[0] as institution_name
+                RETURN DISTINCT grant_title, amount, start_year, description, funding_body,
+                       researcher_name as researcher, institution_name as institution
+                ORDER BY start_year DESC
                 LIMIT 20
                 """
+        elif researcher_names:
+            # Handle detected researcher names from patterns
+            researcher_name = researcher_names[0].strip()
+            name_parts = researcher_name.split()
+            
+            if len(name_parts) >= 2:
+                first_name = name_parts[0]
+                last_name = name_parts[-1]
+                full_name = f"{first_name} {last_name}".lower()
+                
+                return f"""
+                MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
+                WHERE toLower(r.name) CONTAINS '{full_name}' OR toLower(r.name) CONTAINS '{last_name.lower()}'
+                OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
+                WITH g.title as grant_title, g.amount as amount, g.start_year as start_year, g.description as description, g.funding_body as funding_body, g.grant_status as grant_status, g.application_id as application_id,
+                     collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT i.name)[0] as institution_name
+                RETURN DISTINCT grant_title, amount, start_year, description, funding_body, grant_status, application_id,
+                       researcher_name as researcher, institution_name as institution
+                ORDER BY start_year DESC
+                LIMIT 20
+                """
+        elif 'tony velkov' in query_lower or 'velkov' in query_lower:
+            return """
+            MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
+            WHERE r.name CONTAINS 'Tony Velkov' OR r.name CONTAINS 'Velkov' OR r.name CONTAINS 'Toni Velkov'
+            OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
+            WITH g.title as grant_title, g.amount as amount, g.start_year as start_year, g.description as description, g.funding_body as funding_body, g.grant_status as grant_status, g.application_id as application_id,
+                 collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT i.name)[0] as institution_name
+            RETURN DISTINCT grant_title, amount, start_year, description, funding_body, grant_status, application_id,
+                   researcher_name as researcher, institution_name as institution
+            ORDER BY start_year DESC
+            LIMIT 20
+            """
         elif 'glenn king' in query_lower:
             return """
             MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
@@ -706,10 +757,13 @@ Cypher Query:"""
             OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
             OPTIONAL MATCH (g)-[:IN_AREA]->(ra:ResearchArea)
             OPTIONAL MATCH (g)-[:HAS_FIELD]->(rf:ResearchField)
-            RETURN DISTINCT g.title, g.amount, g.start_year, g.end_date, g.description, g.funding_body, 
-                   i.name as institution, ra.name as research_area, rf.name as research_field, 
-                   r.name as researcher, g.grant_status, g.date_announced
-            ORDER BY g.start_year DESC
+            WITH g.title as grant_title, g.amount as amount, g.start_year as start_year, g.end_date as end_date, g.description as description, g.funding_body as funding_body, g.grant_status as grant_status, g.date_announced as date_announced,
+                 collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT i.name)[0] as institution_name, 
+                 collect(DISTINCT ra.name)[0] as research_area_name, collect(DISTINCT rf.name)[0] as research_field_name
+            RETURN DISTINCT grant_title, amount, start_year, end_date, description, funding_body, grant_status, date_announced,
+                   institution_name as institution, research_area_name as research_area, research_field_name as research_field, 
+                   researcher_name as researcher
+            ORDER BY start_year DESC
             LIMIT 20
             """
         elif any(name in query_lower for name in ['king', 'glenn']):
@@ -717,18 +771,22 @@ Cypher Query:"""
             MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
             WHERE r.name CONTAINS 'King' OR r.name CONTAINS 'Glenn'
             OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
-            RETURN DISTINCT g.title, g.amount, g.start_year, g.description, g.funding_body, 
-                   r.name as researcher, i.name as institution
-            ORDER BY g.start_year DESC
+            WITH g.title as grant_title, g.amount as amount, g.start_year as start_year, g.description as description, g.funding_body as funding_body, 
+                 collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT i.name)[0] as institution_name
+            RETURN DISTINCT grant_title, amount, start_year, description, funding_body, 
+                   researcher_name as researcher, institution_name as institution
+            ORDER BY start_year DESC
             LIMIT 20
             """
         elif any(word in query_lower for word in ['grant', 'funding', 'award']):
             return """
-            MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR]->(g:Grant)
+            MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)
             OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
-            RETURN DISTINCT g.title, g.amount, g.start_year, g.description, g.funding_body,
-                   r.name as researcher, i.name as institution
-            ORDER BY g.start_year DESC
+            WITH g.title as grant_title, g.amount as amount, g.start_year as start_year, g.description as description, g.funding_body as funding_body,
+                 collect(DISTINCT r.name)[0] as researcher_name, collect(DISTINCT i.name)[0] as institution_name
+            RETURN DISTINCT grant_title, amount, start_year, description, funding_body,
+                   researcher_name as researcher, institution_name as institution
+            ORDER BY start_year DESC
             LIMIT 20
             """
         elif any(word in query_lower for word in ['cancer', 'oncology', 'tumor']):
@@ -1104,7 +1162,7 @@ Summary:"""
                     # Anthropic client (newer versions)
                     response = self.client.messages.create(
                         model=self.model_id,
-                        max_tokens=4000,
+                        max_tokens=8000,
                         temperature=0.7,
                         messages=[{"role": "user", "content": prompt}]
                     )
@@ -1114,7 +1172,7 @@ Summary:"""
                     response = self.client.completions.create(
                         model=self.model_id,
                         prompt=f"\n\nHuman: {prompt}\n\nAssistant:",
-                        max_tokens_to_sample=4000,
+                        max_tokens_to_sample=8000,
                         temperature=0.7
                     )
                     return response.completion
@@ -1123,7 +1181,7 @@ Summary:"""
                 response = self.client.chat.completions.create(
                     model=self.model_id,
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=4000,
+                    max_tokens=8000,
                     temperature=0.7
                 )
                 return response.choices[0].message.content
@@ -1133,7 +1191,7 @@ Summary:"""
                 response = model.generate_content(
                     prompt,
                     generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=4000,
+                        max_output_tokens=8000,
                         temperature=0.7
                     )
                 )
@@ -1143,7 +1201,7 @@ Summary:"""
                 response = self.client.chat.completions.create(
                     model=self.model_id,
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=4000,
+                    max_tokens=8000,
                     temperature=0.7
                 )
                 return response.choices[0].message.content
