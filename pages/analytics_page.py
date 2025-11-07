@@ -11,7 +11,7 @@ try:
     from streamlit_folium import st_folium
     FOLIUM_AVAILABLE = True
 except ImportError:
-    # Create dummy objects to prevent NameError
+    # Folium not available, create placeholder
     folium = None
     st_folium = None
     FOLIUM_AVAILABLE = False
@@ -86,13 +86,13 @@ with tab1:
                     color_continuous_scale='Viridis'
                 )
                 fig.update_layout(height=500)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
                 
                 # Data table
                 with st.expander("📋 View Data Table"):
                     df_display = df.copy()
                     df_display['total_funding'] = df_display['total_funding'].apply(safe_format_amount)
-                    st.dataframe(df_display, use_container_width=True)
+                    st.dataframe(df_display, width='stretch')
             else:
                 st.info("No data available")
                 
@@ -119,7 +119,7 @@ with tab2:
                     names='research_area',
                     title='Grant Distribution by Research Area'
                 )
-                st.plotly_chart(fig_pie, use_container_width=True)
+                st.plotly_chart(fig_pie, width='stretch')
             
             with col2:
                 # Bar chart
@@ -133,7 +133,7 @@ with tab2:
                     color='total_funding',
                     color_continuous_scale='Blues'
                 )
-                st.plotly_chart(fig_bar, use_container_width=True)
+                st.plotly_chart(fig_bar, width='stretch')
             
             # Summary metrics
             st.subheader("Summary Statistics")
