@@ -86,8 +86,7 @@ with st.sidebar:
         st.warning("Stats unavailable")
 
 # Main content
-st.title("🔍 GraphRAG Grant Explorer")
-st.markdown("### Hybrid Graph + Vector Search for Research Grants")
+st.title("🔍 Research Grant Explorer")
 
 # Schema display
 with st.expander("📐 View Database Schema", expanded=False):
@@ -185,16 +184,232 @@ if st.session_state.current_results:
     if results.get('data'):
         with st.expander("📊 Results Table", expanded=True):
             df = pd.DataFrame(results['data'])
-            st.dataframe(df, use_container_width=True, height=400)
             
-            # Download button
-            csv = df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Results as CSV",
-                data=csv,
-                file_name="grant_results.csv",
-                mime="text/csv"
-            )
+            # Define column mapping for better headers (matching actual database fields)
+            column_mapping = {
+                # Grant fields (actual database properties)
+                'g.title': 'Title',
+                'grant_title': 'Title',
+                'title': 'Title',
+                'g.grant_status': 'Grant Status',
+                'grant_status': 'Grant Status',
+                'status': 'Grant Status',
+                'g.amount': 'Amount',
+                'amount': 'Amount',
+                'g.description': 'Description',
+                'description': 'Description',
+                'g.start_year': 'Start Year',
+                'start_year': 'Start Year',
+                'g.end_date': 'End Date',
+                'end_date': 'End Date',
+                'g.grant_type': 'Grant Type',
+                'grant_type': 'Grant Type',
+                'g.funding_body': 'Funding Body',
+                'funding_body': 'Funding Body',
+                'g.broad_research_area': 'Research Area',
+                'broad_research_area': 'Research Area',
+                'g.field_of_research': 'Field of Research',
+                'field_of_research': 'Field of Research',
+                'g.application_id': 'Application ID',
+                'application_id': 'Application ID',
+                'g.date_announced': 'Date Announced',
+                'date_announced': 'Date Announced',
+                
+                # Researcher fields (actual database properties)
+                'r.name': 'Researcher Name',
+                'researcher_name': 'Researcher Name',
+                'r.orcid_id': 'ORCID ID',
+                'orcid_id': 'ORCID ID',
+                
+                # Institution fields
+                'i.name': 'Institution Name',
+                'institution_name': 'Institution Name',
+                'institution': 'Institution Name',
+                'name': 'Name'
+            }
+            
+            # Apply column mapping and handle potential duplicates
+            df_display = df.copy()
+            used_names = set()
+            
+            for old_col in df_display.columns:
+                if old_col in column_mapping:
+                    new_col = column_mapping[old_col]
+                    # Handle duplicate column names by adding suffix
+                    counter = 1
+                    original_new_col = new_col
+                    while new_col in used_names:
+                        new_col = f"{original_new_col}_{counter}"
+                        counter += 1
+                    used_names.add(new_col)
+                    df_display = df_display.rename(columns={old_col: new_col})
+                else:
+                    # Keep original name but ensure it's unique
+                    new_col = old_col
+                    counter = 1
+                    original_new_col = new_col
+                    while new_col in used_names:
+                        new_col = f"{original_new_col}_{counter}"
+                        counter += 1
+                    used_names.add(new_col)
+                    if new_col != old_col:
+                        df_display = df_display.rename(columns={old_col: new_col})
+            
+            # Define preferred column order (based on actual database fields)
+            preferred_columns = [
+                'Title', 'Grant Status', 'Amount', 'Description', 'Start Year', 'End Date',
+                'Researcher Name', 'ORCID ID', 'Institution Name', 'Grant Type', 
+                'Funding Body', 'Research Area', 'Field of Research', 
+                'Application ID', 'Date Announced'
+            ]
+            
+            # Get available columns from the data
+            available_columns = [col for col in preferred_columns if col in df_display.columns]
+            other_columns = [col for col in df_display.columns if col not in preferred_columns]
+            all_available_columns = available_columns + other_columns
+            
+            # Options interface first (to define variables)
+            col1, col2 = st.columns([2, 1])
+            
+            with col2:
+                # Options for table behavior
+                show_index = st.checkbox("Show row numbers", value=False)
+                enable_column_select = st.checkbox("Enable column selection", value=True,
+                                                 help="Show/hide the column selection interface")
+                enable_reorder = st.checkbox("Enable column reordering", value=True, 
+                                           help="Allow click-to-reorder columns by selection order")
+            
+            # Column selection interface (conditional)
+            # Default to all columns if column selection is disabled
+            if enable_column_select:
+                with col1:
+                    selected_columns = st.multiselect(
+                        "Select columns to display:",
+                        options=all_available_columns,
+                        default=all_available_columns[:8] if len(all_available_columns) > 8 else all_available_columns,
+                        help="Choose which columns to show in the table"
+                    )
+            else:
+                # When column selection is disabled, use all available columns
+                selected_columns = all_available_columns
+                with col1:
+                    st.info(f"📊 Showing all {len(selected_columns)} available columns. Enable column selection to customize.")
+            
+            # Column reordering interface (if enabled and columns are selected)
+            if enable_reorder and selected_columns:
+                st.markdown("**📋 Click to reorder columns:**")
+                reordered_columns = st.multiselect(
+                    "Select columns in your preferred order:",
+                    options=selected_columns,
+                    default=selected_columns,
+                    help="Click to select/deselect columns. The order you select them will be the display order in the table.",
+                    key="column_order"
+                )
+                if reordered_columns:
+                    selected_columns = reordered_columns            # Display the filtered dataframe
+            if selected_columns:
+                df_filtered = df_display[selected_columns]                # Configure dataframe display
+                column_config = {}
+                for col in selected_columns:
+                    if 'Amount' in col:
+                        column_config[col] = st.column_config.NumberColumn(
+                            col,
+                            format="$%.2f",
+                            help="Grant amount in dollars"
+                        )
+                    elif 'Year' in col:
+                        column_config[col] = st.column_config.NumberColumn(
+                            col,
+                            format="%d",
+                            help="Year"
+                        )
+                    elif 'Description' in col:
+                        column_config[col] = st.column_config.TextColumn(
+                            col,
+                            width="large",
+                            help="Grant description"
+                        )
+                    elif col == 'Title':
+                        column_config[col] = st.column_config.TextColumn(
+                            col,
+                            width="medium",
+                            help="Grant title"
+                        )
+                    elif col in ['Researcher Name', 'Institution Name']:
+                        column_config[col] = st.column_config.TextColumn(
+                            col,
+                            width="medium",
+                            help="Name or institution"
+                        )
+                    elif col == 'Funding Body':
+                        column_config[col] = st.column_config.TextColumn(
+                            col,
+                            width="medium",
+                            help="Funding organization"
+                        )
+                    elif col == 'ORCID ID':
+                        column_config[col] = st.column_config.TextColumn(
+                            col,
+                            width="small",
+                            help="ORCID identifier"
+                        )
+                    elif col == 'Application ID':
+                        column_config[col] = st.column_config.TextColumn(
+                            col,
+                            width="small",
+                            help="Grant application ID"
+                        )
+                    elif 'Date' in col:
+                        column_config[col] = st.column_config.TextColumn(
+                            col,
+                            width="small",
+                            help="Date information"
+                        )
+                
+                st.dataframe(
+                    df_filtered,
+                    use_container_width=True,
+                    height=400,
+                    column_config=column_config,
+                    hide_index=not show_index,
+                    column_order=selected_columns
+                )
+                
+                # Display table stats
+                st.caption(f"Showing {len(df_filtered)} records with {len(selected_columns)} columns")
+                
+                # Show helpful tips based on enabled features
+                tips = []
+                if enable_column_select:
+                    tips.append("Select specific columns using the multiselect above")
+                if enable_reorder:
+                    tips.append("Click columns in the order you want them to appear (not drag-and-drop)")
+                if not enable_column_select and not enable_reorder:
+                    tips.append("Enable column selection or reordering for more customization options")
+                
+                if tips:
+                    tip_text = " • ".join(tips)
+                    st.info(f"💡 Tips: {tip_text}")
+                
+                # Download button for filtered data
+                csv = df_filtered.to_csv(index=show_index)
+                st.download_button(
+                    label="📥 Download Filtered Results as CSV",
+                    data=csv,
+                    file_name="grant_results_filtered.csv",
+                    mime="text/csv"
+                )
+                
+            else:
+                st.warning("Please select at least one column to display.")
+                # Fallback download for original data
+                csv = df_display.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download All Results as CSV",
+                    data=csv,
+                    file_name="grant_results_all.csv",
+                    mime="text/csv"
+                )
             
             # Footer note about result limitations
             st.markdown("""
