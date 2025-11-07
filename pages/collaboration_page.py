@@ -123,14 +123,22 @@ def create_collaboration_prompt(grant_database, researcher_profile):
 {researcher_profile}
 </researcher_profile>
 
+CRITICAL INSTRUCTIONS:
+- You MUST identify AT LEAST 6-8 diverse collaboration opportunities
+- Each opportunity should explore different aspects of the researcher's expertise
+- Think creatively across ALL research fields and applications
+- Don't limit yourself to similar research areas - explore unexpected connections
+- Consider both academic research and industry applications
+
 Your goal is to identify creative, interdisciplinary collaboration opportunities for this researcher by analyzing their work against the grants database. You should think both within and significantly beyond their current research field to find innovative applications and partnerships.
 
 Guidelines for identifying collaborations:
 - Look for researchers whose work could complement, enhance, or find novel applications with the target researcher's expertise
-- Consider cross-disciplinary applications (e.g., biomedical techniques applied to engineering problems, social science methods applied to technical challenges)
+- Consider cross-disciplinary applications (e.g., biomedical techniques applied to engineering problems, social science methods applied to technical challenges, computational methods applied to experimental research)
 - Think about the full research pipeline from basic research to clinical/practical applications
 - Consider researchers who might need the target researcher's expertise for their own projects
 - Look for emerging interdisciplinary fields where multiple expertises could converge
+- Explore applications in: healthcare, technology, environmental science, social sciences, engineering, materials science, data science, policy, education
 - Be innovative and think outside conventional academic silos while remaining practical and feasible
 
 For each collaboration opportunity, you must provide:
@@ -150,9 +158,18 @@ Before providing your final answer, use the scratchpad below to systematically a
 4. Evaluate the feasibility and innovation potential of each opportunity]
 </scratchpad>
 
-Structure your final response with separate sections for each collaboration opportunity. Aim to identify 5-8 diverse collaboration opportunities that range from practical near-term partnerships to more ambitious interdisciplinary ventures. Be highly innovative and think out-of-the-box while ensuring all suggestions remain grounded in practical feasibility.
+Structure your final response with separate sections for each collaboration opportunity. You MUST identify AT LEAST 6-8 diverse collaboration opportunities that range from practical near-term partnerships to more ambitious interdisciplinary ventures. Be highly innovative and think out-of-the-box while ensuring all suggestions remain grounded in practical feasibility.
 
-Your final output should consist only of the collaboration opportunity sections, with each section clearly labeled and containing all the required details listed above."""
+IMPORTANT: 
+- Complete your analysis fully - do not truncate your response
+- Provide the complete scratchpad analysis first
+- Then provide all 6-8 collaboration opportunities with full details
+- Each opportunity should be clearly formatted with all required sections
+- Think broadly across all research domains and applications
+
+Your final output should consist of:
+1. A complete scratchpad analysis
+2. 6-8 detailed collaboration opportunity sections, each clearly labeled and containing all the required details listed above."""
 
     return prompt.format(
         grant_database=json.dumps(grant_database, indent=2),
@@ -216,9 +233,9 @@ if selected_researcher:
             "Grant Database Sample Size",
             min_value=50,
             max_value=500,
-            value=150,
+            value=100,
             step=25,
-            help="Number of grants to analyze for collaboration opportunities"
+            help="Number of grants to analyze for collaboration opportunities (100-150 recommended for comprehensive analysis)"
         )
     
     with col2:
@@ -262,10 +279,15 @@ if selected_researcher:
                 # Initialize LLM handler
                 llm_handler = LLMHandler(llm_option, dict(st.secrets))
                 
-                st.info(f"Analyzing {len(formatted_grants)} grants for collaboration opportunities...")
+                st.info(f"🔍 Analyzing {len(formatted_grants)} grants for collaboration opportunities...")
+                st.info(f"🤖 Using {llm_option} for analysis...")
+                
+                # Show prompt size for debugging
+                prompt_length = len(collaboration_prompt)
+                st.info(f"📊 Analysis prompt size: {prompt_length:,} characters")
                 
                 # Get collaboration analysis
-                with st.spinner("Generating collaboration recommendations..."):
+                with st.spinner("🧠 Generating comprehensive collaboration recommendations..."):
                     response = llm_handler.process_query(
                         collaboration_prompt,
                         llm_option=llm_option,
