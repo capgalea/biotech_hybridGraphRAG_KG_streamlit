@@ -1,257 +1,426 @@
-# Hybrid GraphRAG System for Research Grants
+# Hybrid GraphRAG System for Biotech Research
 
-A comprehensive hybrid GraphRAG (Graph Retrieval-Augmented Generation) system that combines Neo4j graph database with multiple LLM providers for intelligent querying and visualization of research grant data.
+A modern full-stack hybrid GraphRAG (Graph Retrieval-Augmented Generation) system combining React frontend, FastAPI backend, and Neo4j graph database for intelligent querying and visualization of biotech research grant data.
 
 ## 🌟 Features
 
-- **Multi-LLM Support**: Claude (3.5, 4.0, 4.5), GPT-4o, Gemini 2.0 Flash, DeepSeek
-- **Hybrid Search**: Combines vector embeddings with graph relationships
-- **Interactive Visualizations**: Pyvis-based network graphs
-- **Natural Language Queries**: Convert plain English to Cypher
-- **Analytics Dashboard**: Funding trends, research area distributions, collaboration networks
-- **Query History**: Track and reuse previous queries
+- **🎨 Modern React UI**: Built with React 19, TypeScript, Vite, and Tailwind CSS
+- **⚡ Fast API Backend**: FastAPI with async support and automatic OpenAPI documentation
+- **🤖 Multi-LLM Support**: Claude (3.5, 4.0, 4.5), GPT-4o, Gemini 2.0 Flash, DeepSeek
+- **🔍 Hybrid Search**: Combines vector embeddings with graph relationships
+- **📊 Interactive Visualizations**: vis-network powered graph visualizations
+- **💬 Natural Language Queries**: Convert plain English to Cypher queries
+- **📈 Analytics Dashboard**: Funding trends, research distributions, collaboration networks
+- **🔄 Real-time Updates**: Query history and result caching
 
 ## 📋 Prerequisites
 
-- Python 3.8+
-- Neo4j Database (5.11+ recommended for vector search)
-- API keys for at least one LLM provider
+- **Node.js** 18+ (for frontend)
+- **Python** 3.9+ (for backend)
+- **Neo4j Database** 5.11+ (for vector search support)
+- **API keys** for at least one LLM provider
 
 ## 🚀 Quick Start
 
-### 1. Install Dependencies
+### Option 1: Local Development Setup
+
+#### 1. Clone and Setup
 
 ```bash
-pip install -r requirements.txt
+git clone <repository-url>
+cd biotech_hybridGraphRAG_KG_streamlit
 ```
 
-### 2. Set Up Neo4j
+#### 2. Set Up Neo4j
 
-**Option A: Neo4j Desktop**
+**Option A: Neo4j Aura (Cloud - Recommended)**
+- Sign up at https://neo4j.com/cloud/aura-free/
+- Create a free instance
+- Download credentials and save the password
+
+**Option B: Neo4j Desktop**
 - Download from https://neo4j.com/download/
-- Create a new database
+- Create and start a new database
 - Note the bolt URI, username, and password
 
-**Option B: Neo4j Aura (Cloud)**
-- Sign up at https://neo4j.com/cloud/aura/
-- Create a free instance
-- Download connection credentials
+#### 3. Configure Environment
 
-### 3. Configure Secrets
-
-Create `.streamlit/secrets.toml`:
-
-```toml
-[neo4j]
-uri = "bolt://localhost:7687"
-user = "neo4j"
-password = "your_password"
-
-[anthropic]
-api_key = "sk-ant-your-key"
-
-[openai]
-api_key = "sk-your-key"
-
-[google]
-api_key = "your-key"
-
-[deepseek]
-api_key = "your-key"
-```
-
-### 4. Ingest Data
+Create `.env` file in the project root:
 
 ```bash
-# Set environment variables (or update script directly)
-export NEO4J_URI="bolt://localhost:7687"
-export NEO4J_USER="neo4j"
-export NEO4J_PASSWORD="your_password"
-export CSV_PATH="combined_grants_small.csv"
+# Neo4j Configuration
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_password
+NEO4J_DATABASE=neo4j
 
-# Run ingestion
-python scripts/ingest_data.py
+# LLM API Keys (at least one required)
+ANTHROPIC_API_KEY=sk-ant-xxxxx
+OPENAI_API_KEY=sk-xxxxx
+GOOGLE_API_KEY=xxxxx
+DEEPSEEK_API_KEY=xxxxx
+
+# Optional: Google Search
+GOOGLE_SEARCH_API_KEY=xxxxx
+GOOGLE_CSE_ID=xxxxx
+
+# Data
+CSV_PATH=data/grants.csv
 ```
 
-### 5. Run Application
+#### 4. Backend Setup
 
 ```bash
-streamlit run app.py
+cd backend
+pip install -r requirements.txt
+
+# Ingest data into Neo4j
+python ../scripts/ingest_data.py
+
+# Start backend server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Visit http://localhost:8501 in your browser.
+Backend will run at: **http://localhost:8000**  
+API docs available at: **http://localhost:8000/docs**
+
+#### 5. Frontend Setup
+
+```bash
+# In a new terminal
+cd frontend
+npm install
+
+# Start development server
+npm run dev
+```
+
+Frontend will run at: **http://localhost:5173**
+
+### Option 2: Docker Compose (Easiest)
+
+```bash
+# Build and start all services
+docker-compose up -d
+
+# Wait for services to start (~30 seconds)
+# Then ingest data
+docker-compose exec backend python scripts/ingest_data.py
+```
+
+Access:
+- **Frontend**: http://localhost:5173
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
+- **Neo4j Browser**: http://localhost:7474
+
+### Option 3: Using Makefile
+
+```bash
+make install          # Install dependencies
+make run             # Run backend (requires separate frontend start)
+make docker-up       # Start with Docker
+make docker-down     # Stop Docker services
+make ingest          # Ingest data
+```
 
 ## 📁 Project Structure
 
 ```
 .
-├── app.py                          # Main Streamlit application
-├── pages/
-│   ├── 1_🌐_Graph_Visualization.py # Graph visualization page
-│   └── 2_📊_Analytics.py           # Analytics dashboard
-├── utils/
-│   ├── neo4j_handler.py            # Neo4j database operations
-│   ├── llm_handler.py              # Multi-LLM interface
-│   └── query_processor.py          # Query processing logic
-├── scripts/
-│   ├── ingest_data.py              # Data ingestion script
-│   └── generate_embeddings.py      # Generate vector embeddings
-├── .streamlit/
-│   └── secrets.toml                # Configuration (create this)
-├── requirements.txt                # Python dependencies
-└── README.md                       # This file
+├── frontend/                      # React TypeScript frontend
+│   ├── src/
+│   │   ├── pages/                # Application pages
+│   │   │   ├── Home.tsx          # Query interface
+│   │   │   ├── GraphViz.tsx      # Graph visualization
+│   │   │   ├── Analytics.tsx     # Analytics dashboard
+│   │   │   └── Collaboration.tsx # Collaboration networks
+│   │   ├── components/           # Reusable UI components
+│   │   ├── services/             # API client
+│   │   └── types/                # TypeScript type definitions
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── backend/                       # FastAPI backend
+│   ├── app/
+│   │   ├── main.py               # FastAPI application
+│   │   ├── config.py             # Configuration management
+│   │   ├── routers/              # API endpoints
+│   │   │   ├── query.py          # Natural language queries
+│   │   │   ├── graph.py          # Graph operations
+│   │   │   ├── analytics.py      # Analytics endpoints
+│   │   │   └── collaboration.py  # Collaboration networks
+│   │   └── utils/                # Backend utilities
+│   │       ├── neo4j_handler.py  # Neo4j operations
+│   │       ├── llm_handler.py    # Multi-LLM interface
+│   │       └── query_processor.py # Query processing
+│   └── requirements.txt
+│
+├── scripts/                       # Utility scripts
+│   ├── ingest_data.py            # Data ingestion
+│   └── generate_embeddings.py    # Vector embeddings
+│
+├── data/                          # Data files
+│   ├── biotech_data.csv
+│   └── grants.csv
+│
+├── docker-compose.yml             # Docker orchestration
+├── Dockerfile                     # Container image
+├── Makefile                       # Development commands
+└── .env                          # Environment variables (create this)
 ```
 
 ## 🎯 Usage Guide
 
-### Main Query Page
+### Home - Query Interface
 
-1. **Select LLM**: Choose your preferred language model
-2. **Enter Query**: Type natural language questions like:
+1. **Select LLM Model**: Choose your preferred language model from the dropdown
+2. **Enter Natural Language Query**: 
    - "Which grants focus on cancer research?"
    - "Show me all grants at University of Melbourne"
-   - "Find grants related to climate change with funding over $1M"
-3. **View Results**: See generated Cypher, data tables, and AI summaries
-4. **Query History**: Click previous queries in sidebar to reuse them
+   - "Find grants related to CRISPR with funding over $1M"
+3. **View Results**: 
+   - Generated Cypher query
+   - Tabular results
+   - AI-powered summary
+4. **Query History**: Access previous queries from the sidebar
 
 ### Graph Visualization
 
-Three visualization modes:
-
-1. **Random Sample**: Generate random subgraphs
-2. **Node Browser**: Select specific node types and relationships
-3. **Custom Query**: Write your own Cypher queries
+Visualize your knowledge graph with:
+- **Random Sample**: Generate random subgraphs for exploration
+- **Custom Queries**: Write Cypher queries for specific patterns
+- **Interactive Network**: Zoom, pan, and click nodes for details
 
 ### Analytics Dashboard
 
-Explore:
-- Top institutions by funding
-- Research area distributions
-- Funding trends over time
-- Collaboration networks
+Explore insights:
+- 📊 Top institutions by funding
+- 🔬 Research area distributions  
+- 📈 Funding trends over time
+- 🌐 Geographic distributions
+- 🤝 Collaboration patterns
+
+### Collaboration Networks
+
+Discover:
+- Researcher collaboration networks
+- Institutional partnerships
+- Cross-disciplinary connections
 
 ## 📊 Graph Schema
 
-The system creates the following graph structure:
-
 ```
-(:Grant) - Nodes representing individual grants
-(:Researcher) - Principal investigators
-(:Institution) - Universities and research organizations
-(:ResearchArea) - Broad research categories
-(:ResearchField) - Detailed research fields
+Nodes:
+(:Grant)         - Individual research grants
+(:Researcher)    - Principal investigators
+(:Institution)   - Universities and organizations
+(:ResearchArea)  - Broad research categories
+(:ResearchField) - Specific research fields
 
 Relationships:
 (:Researcher)-[:PRINCIPAL_INVESTIGATOR]->(:Grant)
 (:Grant)-[:HOSTED_BY]->(:Institution)
 (:Grant)-[:IN_AREA]->(:ResearchArea)
 (:Grant)-[:HAS_FIELD]->(:ResearchField)
+(:Researcher)-[:AFFILIATED_WITH]->(:Institution)
 ```
 
 ## 🔍 Example Queries
 
-### Natural Language (Main Page)
-- "What are the highest funded grants?"
-- "Which researchers work on neuroscience?"
-- "Show grants at Monash University starting in 2026"
+### Natural Language (Home Page)
+```
+What are the highest funded grants in 2025?
+Which researchers work on neuroscience?
+Show collaboration between institutions
+Find grants about artificial intelligence
+List all grants at Stanford University
+```
 
-### Cypher (Visualization Page)
+### Cypher (Graph Visualization)
 ```cypher
 // Find collaboration networks
 MATCH (r1:Researcher)-[:PRINCIPAL_INVESTIGATOR]->(g:Grant)
       <-[:PRINCIPAL_INVESTIGATOR]-(r2:Researcher)
 WHERE r1 <> r2
-RETURN r1, r2, g
-LIMIT 20
+RETURN r1, r2, g LIMIT 50
 
-// Grants by research area
+// Top funded research areas
 MATCH (g:Grant)-[:IN_AREA]->(a:ResearchArea)
-WHERE a.name = 'Public Health Research'
-RETURN g, a
-LIMIT 15
+RETURN a.name, sum(g.funding) as total_funding
+ORDER BY total_funding DESC
+
+// Institution collaboration network
+MATCH (i1:Institution)<-[:HOSTED_BY]-(g:Grant)
+      -[:HOSTED_BY]->(i2:Institution)
+WHERE i1 <> i2
+RETURN i1, i2, count(g) as collaborations
+ORDER BY collaborations DESC
 ```
+
+## 🔌 API Endpoints
+
+### Query API
+- `POST /api/query/natural` - Natural language to Cypher
+- `POST /api/query/execute` - Execute Cypher query
+- `GET /api/query/history` - Query history
+
+### Graph API
+- `GET /api/graph/random` - Random subgraph sample
+- `POST /api/graph/custom` - Custom graph query
+- `GET /api/graph/schema` - Graph schema info
+
+### Analytics API
+- `GET /api/analytics/funding` - Funding statistics
+- `GET /api/analytics/areas` - Research area distributions
+- `GET /api/analytics/trends` - Temporal trends
+
+### Collaboration API
+- `GET /api/collaboration/network` - Collaboration networks
+- `GET /api/collaboration/researchers` - Researcher connections
+
+Full API documentation: http://localhost:8000/docs
 
 ## 🧪 Advanced Features
 
-### Vector Search (Optional)
+### Vector Search
 
-Generate embeddings for semantic search:
+Enable semantic search with embeddings:
 
 ```bash
 python scripts/generate_embeddings.py
 ```
 
-This requires:
+Requirements:
 - Neo4j 5.11+
-- `sentence-transformers` library
-- Vector index creation (done by ingestion script)
+- sentence-transformers library
+- Vector index (auto-created during ingestion)
 
 ### Custom LLM Integration
 
-Add new LLM providers in `utils/llm_handler.py`:
+Add new providers in `backend/app/utils/llm_handler.py`:
 
 ```python
-elif "YourLLM" in self.model_name:
-    self.provider = "yourllm"
-    # Initialize your LLM client
+elif "YourModel" in self.model_name:
+    self.provider = "yourprovider"
+    self.client = YourProviderClient(api_key=self.api_key)
 ```
 
-### Extending the Schema
+### Extending the API
 
-Modify `scripts/ingest_data.py` to add new node types or relationships:
+Add new endpoints in `backend/app/routers/`:
 
 ```python
-# Example: Add funding body as separate node
-funding_cypher = """
-MERGE (fb:FundingBody {name: $name})
-WITH fb
-MATCH (g:Grant {application_id: $application_id})
-MERGE (g)-[:FUNDED_BY]->(fb)
-"""
+from fastapi import APIRouter
+router = APIRouter()
+
+@router.get("/your-endpoint")
+async def your_function():
+    return {"data": "your_result"}
 ```
 
 ## 🐛 Troubleshooting
 
-### Connection Issues
+### Backend Issues
 
+**Connection Errors:**
 ```bash
 # Test Neo4j connection
-python -c "from neo4j import GraphDatabase; driver = GraphDatabase.driver('bolt://localhost:7687', auth=('neo4j', 'password')); driver.verify_connectivity(); print('Connected!')"
+python -c "from neo4j import GraphDatabase; driver = GraphDatabase.driver('bolt://localhost:7687', auth=('neo4j', 'password')); driver.verify_connectivity(); print('✅ Connected!')"
 ```
 
-### LLM API Errors
+**API Not Starting:**
+- Check port 8000 is available
+- Verify .env file exists and is properly formatted
+- Check Python version: `python --version` (should be 3.9+)
 
-- Verify API keys in secrets.toml
-- Check rate limits
-- Ensure internet connectivity
+### Frontend Issues
 
-### Vector Search Not Working
+**Build Errors:**
+```bash
+cd frontend
+rm -rf node_modules package-lock.json
+npm install
+```
 
+**CORS Errors:**
+- Ensure backend is running on port 8000
+- Check `allow_origins` in `backend/app/main.py`
+
+### Database Issues
+
+**Empty Results:**
+- Verify data ingestion: Check Neo4j Browser for nodes
+- Run: `python scripts/ingest_data.py`
+- Check logs for errors
+
+**Vector Search Not Working:**
 - Requires Neo4j 5.11+
-- Run embedding generation script
-- Verify vector index creation
-
-### Empty Results
-
-- Check data ingestion completed
-- Verify Cypher query syntax
-- Try simpler queries first
+- Run: `python scripts/generate_embeddings.py`
+- Verify vector index creation in Neo4j Browser
 
 ## 📚 Documentation
 
 - [Neo4j Cypher Manual](https://neo4j.com/docs/cypher-manual/)
-- [Streamlit Documentation](https://docs.streamlit.io/)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- [React Documentation](https://react.dev/)
+- [Vite Documentation](https://vitejs.dev/)
 - [GraphRAG Concepts](https://neo4j.com/docs/graph-data-science/)
+
+## 🧰 Development
+
+### Backend Development
+
+```bash
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Frontend Development
+
+```bash
+cd frontend
+npm run dev
+```
+
+### Building for Production
+
+**Frontend:**
+```bash
+cd frontend
+npm run build
+npm run preview  # Test production build
+```
+
+**Backend:**
+```bash
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+### Testing
+
+```bash
+# Backend tests
+cd backend
+pytest
+
+# Frontend tests
+cd frontend
+npm run test
+```
 
 ## 🤝 Contributing
 
 Contributions welcome! Areas for improvement:
 
-- Additional LLM providers
-- Enhanced analytics visualizations
-- Better embedding models
-- Query optimization
-- UI/UX improvements
+- 🎨 Additional UI components and visualizations
+- 🤖 More LLM provider integrations
+- 📊 Advanced analytics features
+- 🔍 Enhanced search capabilities
+- 📱 Mobile responsive improvements
+- 🧪 Test coverage expansion
+- 📖 Documentation improvements
 
 ## 📄 License
 
@@ -259,18 +428,21 @@ MIT License - see LICENSE file for details
 
 ## 🙏 Acknowledgments
 
-- Neo4j for the graph database
-- Streamlit for the web framework
-- Anthropic, OpenAI, Google, DeepSeek for LLM APIs
-- Pyvis for network visualizations
+- **Neo4j** - Graph database platform
+- **FastAPI** - Modern Python web framework
+- **React** - UI library
+- **Vite** - Build tool and dev server
+- **Anthropic, OpenAI, Google, DeepSeek** - LLM APIs
+- **vis-network** - Network visualization library
 
 ## 📞 Support
 
 For issues and questions:
-- Check troubleshooting section
-- Review Neo4j and Streamlit docs
-- Open an issue on GitHub
+- 📖 Check troubleshooting section
+- 💬 Review documentation links
+- 🐛 Open an issue on GitHub
+- 📧 Contact maintainers
 
 ---
 
-**Built with ❤️ using Neo4j GraphRAG**
+**Built with ❤️ using React + FastAPI + Neo4j GraphRAG**

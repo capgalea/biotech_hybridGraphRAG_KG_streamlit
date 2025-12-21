@@ -11,8 +11,11 @@ help: ## Show this help message
 install: ## Install Python dependencies
 	pip install -r requirements.txt
 
-run: ## Run the Streamlit application
-	streamlit run app.py
+run: ## Run backend (FastAPI)
+	cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+run-frontend: ## Run frontend (React)
+	cd frontend && npm run dev
 
 ingest: ## Run data ingestion script
 	python scripts/ingest_data.py
@@ -28,7 +31,8 @@ docker-up: ## Start all services with Docker
 	@echo "Waiting for services to start..."
 	@sleep 10
 	@echo "Neo4j Browser: http://localhost:7474"
-	@echo "Streamlit App: http://localhost:8501"
+	@echo "Backend API: http://localhost:8000"
+	@echo "Frontend: http://localhost:5173"
 
 docker-down: ## Stop all Docker services
 	docker-compose down
@@ -37,7 +41,7 @@ docker-logs: ## Show Docker logs
 	docker-compose logs -f
 
 docker-ingest: ## Run data ingestion in Docker
-	docker-compose exec streamlit python scripts/ingest_data.py
+	docker-compose exec backend python scripts/ingest_data.py
 
 docker-clean: ## Remove all Docker containers and volumes
 	docker-compose down -v
