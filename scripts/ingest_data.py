@@ -10,6 +10,9 @@ from typing import Dict, Any, Optional
 import sys
 import os
 import toml
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -185,7 +188,11 @@ class DataIngestion:
     def ingest_csv(self, csv_path: str):
         """Ingest data from CSV file"""
         logger.info(f"Reading CSV file: {csv_path}")
-        df = pd.read_csv(csv_path)
+        try:
+            df = pd.read_csv(csv_path)
+        except UnicodeDecodeError:
+            logger.warning(f"UTF-8 decode failed for {csv_path}, trying ISO-8859-1")
+            df = pd.read_csv(csv_path, encoding='ISO-8859-1')
         
         logger.info(f"Found {len(df)} records")
         
