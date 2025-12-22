@@ -169,55 +169,16 @@ class QueryProcessor:
         return self.neo4j.execute_cypher(cypher, {'name': partial_name, 'limit': limit})
     
     def get_funding_trends(self, start_year: int = 2000, end_year: int = 2024) -> List[Dict]:
-        """
-        Analyze funding trends over time
-        """
-        cypher = """
-        MATCH (g:Grant)
-        WHERE g.start_year >= $start_year AND g.start_year <= $end_year
-        AND g.amount IS NOT NULL AND g.amount > 0
-        RETURN g.start_year as year, 
-               count(g) as grant_count,
-               sum(g.amount) as total_funding,
-               avg(g.amount) as avg_funding
-        ORDER BY year
-        """
-        
-        return self.neo4j.execute_cypher(cypher, {
-            'start_year': start_year,
-            'end_year': end_year
-        })
+        """Analyze funding trends over time"""
+        return self.neo4j.get_funding_trends(start_year, end_year)
     
     def get_top_institutions(self, limit: int = 10) -> List[Dict]:
-        """
-        Get top institutions by funding
-        """
-        cypher = """
-        MATCH (g:Grant)-[:HOSTED_BY]->(i:Institution)
-        WHERE g.amount IS NOT NULL AND g.amount > 0
-        RETURN i.name as institution,
-               count(g) as grant_count,
-               sum(g.amount) as total_funding
-        ORDER BY total_funding DESC
-        LIMIT $limit
-        """
-        
-        return self.neo4j.execute_cypher(cypher, {'limit': limit})
+        """Get top institutions by funding"""
+        return self.neo4j.get_top_institutions(limit)
     
     def get_research_area_distribution(self) -> List[Dict]:
-        """
-        Get distribution of grants across research areas
-        """
-        cypher = """
-        MATCH (g:Grant)-[:IN_AREA]->(a:ResearchArea)
-        WHERE g.amount IS NOT NULL AND g.amount > 0
-        RETURN a.name as research_area,
-               count(g) as grant_count,
-               sum(g.amount) as total_funding
-        ORDER BY grant_count DESC
-        """
-        
-        return self.neo4j.execute_cypher(cypher)
+        """Get distribution of grants across research areas"""
+        return self.neo4j.get_research_area_distribution()
     
     def get_collaborator_locations(self, researcher_name: str) -> List[Dict]:
         """

@@ -1,0 +1,3 @@
+DEEPSEEK_API_KEY found: sk-or-v1...d9826
+SUCCESS: DeepSeek API is working!
+Response: Yes, I am working! I'm here and ready to help you with whatever you need. How

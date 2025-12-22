@@ -12,9 +12,13 @@ export const queryService = {
 };
 
 export const analyticsService = {
-  getStats: () => api.get('/analytics/stats'),
+  getStats: (filters: any = {}) => api.get('/analytics/stats', { params: filters }),
   getSchema: () => api.get('/analytics/schema'),
-  getTopInstitutions: (limit: number = 10) => api.get(`/analytics/institutions?limit=${limit}`),
+  getTopInstitutions: (limit: number = 10, filters: any = {}) =>
+    api.get(`/analytics/institutions`, { params: { limit, ...filters } }),
+  getTrends: (startYear: number = 2000, endYear: number = 2024, filters: any = {}) =>
+    api.get(`/analytics/trends`, { params: { start_year_min: startYear, start_year_max: endYear, ...filters } }),
+  getFilters: () => api.get('/analytics/filters'),
 };
 
 export const collaborationService = {

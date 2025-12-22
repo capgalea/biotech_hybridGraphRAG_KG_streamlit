@@ -108,33 +108,157 @@ class Neo4jHandler:
             logger.error(f"Query: {query}")
             raise
     
-    def get_database_stats(self) -> Dict[str, int]:
-        """Get database statistics"""
+    def _build_filter_clause(self, filters: Optional[Dict[str, Any]] = None, prefix: str = "g") -> str:
+        """Helper to build WHERE clause from filters"""
+        if not filters:
+            return ""
+        
+        clauses = []
+        for key, value in filters.items():
+            if not value:
+                continue
+            
+            if key == "institution":
+                # Special case for relationship-based filter
+                clauses.append(f"EXISTS {{ MATCH ({prefix})-[:HOSTED_BY]->(i:Institution) WHERE i.name = $institution }}")
+            elif key == "start_year":
+                clauses.append(f"{prefix}.{key} = toInteger($start_year)")
+            else:
+                clauses.append(f"{prefix}.{key} = ${key}")
+        
+        return " AND ".join(clauses) if clauses else ""
+
+    def get_database_stats(self, filters: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
+        """Get database statistics with optional filtering"""
         stats = {}
+        where_clause = self._build_filter_clause(filters)
+        where_str = f"WHERE {where_clause}" if where_clause else ""
         
         with self.driver.session(database=self.database) as session:
             # Count grants
-            result = session.run("MATCH (g:Grant) RETURN count(g) as count")
+            result = session.run(f"MATCH (g:Grant) {where_str} RETURN count(g) as count", filters or {})
             record = result.single()
             stats['grants'] = record['count'] if record else 0
             
             # Count researchers
-            result = session.run("MATCH (r:Researcher) RETURN count(r) as count")
+            # If filtered by grant properties, we need to join researchers to grants
+            if where_clause:
+                researcher_query = f"MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant) {where_str} RETURN count(DISTINCT r) as count"
+            else:
+                researcher_query = "MATCH (r:Researcher) RETURN count(r) as count"
+            result = session.run(researcher_query, filters or {})
             record = result.single()
             stats['researchers'] = record['count'] if record else 0
             
             # Count institutions
-            result = session.run("MATCH (i:Institution) RETURN count(i) as count")
+            if where_clause:
+                institution_query = f"MATCH (g:Grant)-[:HOSTED_BY]->(i:Institution) {where_str} RETURN count(DISTINCT i) as count"
+            else:
+                institution_query = "MATCH (i:Institution) RETURN count(i) as count"
+            result = session.run(institution_query, filters or {})
             record = result.single()
             stats['institutions'] = record['count'] if record else 0
             
-            # Count relationships
-            result = session.run("MATCH ()-[r]->() RETURN count(r) as count")
+            # Sum total funding
+            result = session.run(f"MATCH (g:Grant) {where_str} {'AND' if where_clause else 'WHERE'} g.amount IS NOT NULL RETURN sum(g.amount) as total", filters or {})
             record = result.single()
-            stats['relationships'] = record['count'] if record else 0
+            stats['total_funding'] = record['total'] if record else 0
+
+            # Count unique PIs
+            if where_clause:
+                pi_query = f"MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR]->(g:Grant) {where_str} RETURN count(DISTINCT r) as count"
+            else:
+                pi_query = "MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR]->() RETURN count(DISTINCT r) as count"
+            result = session.run(pi_query, filters or {})
+            record = result.single()
+            stats['unique_pi'] = record['count'] if record else 0
         
         return stats
     
+    def get_top_institutions(self, limit: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[Dict]:
+        """
+        Get top institutions by funding with optional filtering
+        """
+        where_clause = self._build_filter_clause(filters)
+        where_str = f"AND {where_clause}" if where_clause else ""
+        
+        cypher = f"""
+        MATCH (g:Grant)-[:HOSTED_BY]->(i:Institution)
+        WHERE g.amount IS NOT NULL AND g.amount \u003e 0 {where_str}
+        RETURN i.name as institution,
+               count(g) as grant_count,
+               sum(g.amount) as total_funding
+        ORDER BY total_funding DESC
+        LIMIT $limit
+        """
+        
+        params = (filters or {}).copy()
+        params['limit'] = limit
+        return self.execute_cypher(cypher, params)
+
+    def get_funding_trends(self, start_year: int = 2000, end_year: int = 2024, filters: Optional[Dict[str, Any]] = None) -> List[Dict]:
+        """
+        Analyze funding trends over time with optional filtering
+        """
+        where_clause = self._build_filter_clause(filters)
+        where_str = f"AND {where_clause}" if where_clause else ""
+        
+        cypher = f"""
+        MATCH (g:Grant)
+        WHERE g.start_year >= $start_year AND g.start_year <= $end_year
+        AND g.amount IS NOT NULL AND g.amount \u003e 0 {where_str}
+        RETURN g.start_year as year, 
+               count(g) as grant_count,
+               sum(g.amount) as total_funding,
+               avg(g.amount) as avg_funding,
+               percentileCont(g.amount, 0.5) as median_funding
+        ORDER BY year
+        """
+        
+        params = (filters or {}).copy()
+        params.update({
+            'start_year': start_year,
+            'end_year': end_year
+        })
+        return self.execute_cypher(cypher, params)
+
+    def get_filter_options(self) -> Dict[str, List[str]]:
+        """Get unique values for filters"""
+        options = {}
+        properties = [
+            ("grant_type", "Grant"),
+            ("funding_body", "Grant"),
+            ("broad_research_area", "Grant"),
+            ("field_of_research", "Grant"),
+            ("start_year", "Grant")
+        ]
+        
+        with self.driver.session(database=self.database) as session:
+            for prop, label in properties:
+                result = session.run(f"MATCH (n:{label}) WHERE n.{prop} IS NOT NULL RETURN DISTINCT n.{prop} as value ORDER BY value LIMIT 100")
+                options[prop] = [str(record["value"]) for record in result if record["value"]]
+            
+            # Special case for institutions
+            result = session.run("MATCH (i:Institution) RETURN DISTINCT i.name as value ORDER BY value LIMIT 100")
+            options["institution"] = [record["value"] for record in result if record["value"]]
+            
+        return options
+
+    def get_research_area_distribution(self) -> List[Dict]:
+        """
+        Get distribution of grants across research areas
+        """
+        cypher = """
+        MATCH (g:Grant)-[:IN_AREA]->(a:ResearchArea)
+        WHERE g.amount IS NOT NULL AND g.amount > 0
+        RETURN a.name as research_area,
+               count(g) as grant_count,
+               sum(g.amount) as total_funding
+        ORDER BY grant_count DESC
+        """
+        
+        return self.execute_cypher(cypher)
+
     def vector_search(self, query_embedding: List[float], limit: int = 10) -> List[Dict]:
         """
         Perform vector similarity search

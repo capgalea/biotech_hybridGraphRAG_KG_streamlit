@@ -1,0 +1,2 @@
+ANTHROPIC_API_KEY: sk-ant-api...x2gAA
+ERROR: Anthropic API call failed: Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3-5-sonnet-latest'}, 'request_id': 'req_011CWLmDUA4JiVM6kQ4C8ih7'}

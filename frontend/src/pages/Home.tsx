@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Send, Search, Loader2 } from "lucide-react";
+import { Send, Loader2 } from "lucide-react";
 import { queryService } from "../services/api";
 import ReactMarkdown from "react-markdown";
 
@@ -7,7 +7,7 @@ export const Home = () => {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
-  const [llmModel, setLlmModel] = useState("claude-3-5-sonnet");
+  const [llmModel, setLlmModel] = useState("claude-4-5-sonnet");
   const [enableSearch, setEnableSearch] = useState(true);
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -77,9 +77,11 @@ export const Home = () => {
                 onChange={(e) => setLlmModel(e.target.value)}
                 className="border rounded px-2 py-1 bg-gray-50"
               >
+                <option value="claude-4-5-sonnet">Claude 4.5 Sonnet</option>
                 <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
                 <option value="gemini-2-0-flash">Gemini 2.0 Flash</option>
                 <option value="deepseek-r1">DeepSeek R1</option>
+                <option value="deepseek-v3">DeepSeek V3</option>
               </select>
             </div>
 

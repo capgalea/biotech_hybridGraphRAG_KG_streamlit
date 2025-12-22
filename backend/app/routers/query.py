@@ -12,7 +12,7 @@ router = APIRouter()
 
 class QueryRequest(BaseModel):
     query: str
-    llm_model: str = "claude-3-5-sonnet"
+    llm_model: str = "claude-4-5-sonnet"
     enable_search: bool = True
 
 @router.post("/")
@@ -38,11 +38,13 @@ def process_query(request: QueryRequest):
 
         # Map frontend model names to backend expected names
         model_map = {
+            "claude-4-5-sonnet": "Claude 4.5 Sonnet",
             "claude-3-5-sonnet": "Claude 3.5 Sonnet",
             "gemini-2-0-flash": "Gemini 2.0 Flash",
-            "deepseek-r1": "DeepSeek R1"
+            "deepseek-r1": "DeepSeek R1",
+            "deepseek-v3": "DeepSeek V3"
         }
-        backend_model = model_map.get(request.llm_model, "Claude 3.5 Sonnet")
+        backend_model = model_map.get(request.llm_model, "Claude 4.5 Sonnet")
         
         # Initialize LLM Handler
         try:

@@ -1,0 +1,5 @@
+C:\Users\guino\OneDrive\Documents\GitHub\biotech_hybridGraphRAG_KG_streamlit\backend\test_anthropic.py:20: DeprecationWarning: The model 'claude-3-5-sonnet-20240620' is deprecated and will reach end-of-life on October 22, 2025.
+Please migrate to a newer model. Visit https://docs.anthropic.com/en/docs/resources/model-deprecations for more information.
+  message = client.messages.create(
+ANTHROPIC_API_KEY: sk-ant-api...x2gAA
+ERROR: Anthropic API call failed: Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3-5-sonnet-20240620'}, 'request_id': 'req_011CWLmB9ETk7NCFkdCA4AVo'}

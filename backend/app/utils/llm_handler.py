@@ -52,7 +52,7 @@ class LLMHandler:
         self.secrets = secrets
         self.provider = "openai"  # Default to openai (Anthropic has API issues)
         self.client = None
-        self.model_id = "claude-3-5-sonnet-20240620" 
+        self.model_id = "claude-3-5-sonnet-latest" 
         
         # Initialize Google Search API credentials
         self.google_search_api_key = secrets.get("google", {}).get("search_api_key")
@@ -69,8 +69,10 @@ class LLMHandler:
                 self.client = anthropic.Anthropic(
                     api_key=self.secrets.get("anthropic", {}).get("api_key")
                 )
-                # Use Claude 3.5 Sonnet (latest available)
-                self.model_id = "claude-3-5-sonnet-20240620"
+                if "4.5" in self.model_name:
+                    self.model_id = "claude-sonnet-4-5"
+                else:
+                    self.model_id = "claude-3-5-sonnet-latest"
                     
             elif "GPT" in self.model_name or "o3" in self.model_name:
                 self.provider = "openai"
@@ -84,14 +86,26 @@ class LLMHandler:
                 
             elif "DeepSeek" in self.model_name:
                 self.provider = "deepseek" 
-                self.client = openai.OpenAI(
-                    api_key=self.secrets.get("deepseek", {}).get("api_key"),
-                    base_url="https://api.deepseek.com"
-                )
-                if "R1" in self.model_name:
-                    self.model_id = "deepseek-reasoner"
+                api_key = self.secrets.get("deepseek", {}).get("api_key")
+                
+                # Detect OpenRouter key format
+                if api_key and api_key.startswith("sk-or-"):
+                    base_url = "https://openrouter.ai/api/v1"
+                    if "R1" in self.model_name:
+                        self.model_id = "deepseek/deepseek-r1"
+                    else:
+                        self.model_id = "deepseek/deepseek-v3.2"
                 else:
-                    self.model_id = "deepseek-chat"
+                    base_url = "https://api.deepseek.com"
+                    if "R1" in self.model_name:
+                        self.model_id = "deepseek-reasoner"
+                    else:
+                        self.model_id = "deepseek-chat"
+                
+                self.client = openai.OpenAI(
+                    api_key=api_key,
+                    base_url=base_url
+                )
                 
             elif "Gemini" in self.model_name:
                 self.provider = "google"
@@ -1218,12 +1232,13 @@ Summary:"""
     def _get_model_id(self) -> str:
         """Get the actual model ID for API calls"""
         model_mapping = {
+            "Claude 4.5 Sonnet": "claude-sonnet-4-5",
             "Claude 3.7 Sonnet": "claude-3-7-sonnet-20250219",
-            "Claude 4.0 Sonnet": "claude-3-7-sonnet-20250219", 
-            "Claude 4.5 Sonnet": "claude-3-7-sonnet-20250219",
+            "Claude 3.5 Sonnet": "claude-3-5-sonnet-latest",
             "GPT-4o": "gpt-4o",
             "GPT-4o Mini": "gpt-4o-mini",
-            "Gemini 2.0 Flash": "gemini-2.0-flash-exp",
-            "DeepSeek V3": "deepseek-chat"
+            "Gemini 2.0 Flash": "gemini-2.0-flash",
+            "DeepSeek R1": "deepseek-reasoner",
+            "DeepSeek V3": "deepseek/deepseek-v3.2"
         }
-        return model_mapping.get(self.model_name, "claude-3-5-sonnet-20240620")
+        return model_mapping.get(self.model_name, "claude-sonnet-4-5")
