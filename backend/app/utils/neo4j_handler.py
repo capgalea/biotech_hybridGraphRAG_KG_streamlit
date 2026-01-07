@@ -162,7 +162,9 @@ class Neo4jHandler:
             # Sum total funding
             result = session.run(f"MATCH (g:Grant) {where_str} {'AND' if where_clause else 'WHERE'} g.amount IS NOT NULL RETURN sum(g.amount) as total", filters or {})
             record = result.single()
-            stats['total_funding'] = record['total'] if record else 0
+            total_funding = record['total'] if record and record['total'] is not None else 0
+            # Handle NaN values that can occur with empty result sets
+            stats['total_funding'] = 0 if total_funding != total_funding else total_funding  # NaN check
 
             # Count unique PIs
             if where_clause:
@@ -222,6 +224,56 @@ class Neo4jHandler:
         })
         return self.execute_cypher(cypher, params)
 
+    def get_grants_list(self, limit: int = 50, skip: int = 0, filters: Optional[Dict[str, Any]] = None, search: Optional[str] = None, sort_by: str = "start_year", order: str = "DESC") -> List[Dict]:
+        """Get paginated list of grants with search and dynamic sorting"""
+        where_clause = self._build_filter_clause(filters)
+        
+        # Add search condition if provided
+        if search:
+            search_clause = "(TOLOWER(g.title) CONTAINS TOLOWER($search) OR TOLOWER(g.description) CONTAINS TOLOWER($search) OR TOLOWER(g.application_id) CONTAINS TOLOWER($search))"
+            where_clause = f"({where_clause}) AND {search_clause}" if where_clause else search_clause
+            
+        where_str = f"WHERE {where_clause}" if where_clause else ""
+        
+        # Allowed sort fields to prevent injection
+        allowed_sorts = {
+            "title": "coalesce(g.title, '')",
+            "amount": "coalesce(g.amount, -1)",
+            "start_year": "coalesce(g.start_year, -1)",
+            "funding_body": "coalesce(g.funding_body, '')",
+            "application_id": "coalesce(g.application_id, '')",
+            "pi_name": "coalesce(pi.name, '')",
+            "institution_name": "coalesce(i.name, '')"
+        }
+        sort_field = allowed_sorts.get(sort_by, "g.start_year")
+        sort_order = "DESC" if order.upper() == "DESC" else "ASC"
+        
+        cypher = f"""
+        MATCH (g:Grant)
+        OPTIONAL MATCH (g)<-[:PRINCIPAL_INVESTIGATOR]-(pi:Researcher)
+        OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
+        WITH g, pi, i
+        {where_str}
+        RETURN g.title as title,
+               pi.name as pi_name,
+               i.name as institution_name,
+               g.grant_status as grant_status,
+               g.amount as amount,
+               g.description as description,
+               g.start_year as start_year,
+               g.grant_type as grant_type,
+               g.funding_body as funding_body,
+               g.field_of_research as field_of_research,
+               g.application_id as application_id
+        ORDER BY {sort_field} {sort_order}
+        SKIP $skip
+        LIMIT $limit
+        """
+        
+        params = (filters or {}).copy()
+        params.update({'limit': limit, 'skip': skip, 'search': search})
+        return self.execute_cypher(cypher, params)
+
     def get_filter_options(self) -> Dict[str, List[str]]:
         """Get unique values for filters"""
         options = {}
@@ -235,11 +287,11 @@ class Neo4jHandler:
         
         with self.driver.session(database=self.database) as session:
             for prop, label in properties:
-                result = session.run(f"MATCH (n:{label}) WHERE n.{prop} IS NOT NULL RETURN DISTINCT n.{prop} as value ORDER BY value LIMIT 100")
+                result = session.run(f"MATCH (n:{label}) WHERE n.{prop} IS NOT NULL RETURN DISTINCT n.{prop} as value ORDER BY value LIMIT 1000")
                 options[prop] = [str(record["value"]) for record in result if record["value"]]
             
             # Special case for institutions
-            result = session.run("MATCH (i:Institution) RETURN DISTINCT i.name as value ORDER BY value LIMIT 100")
+            result = session.run("MATCH (i:Institution) RETURN DISTINCT i.name as value ORDER BY value LIMIT 1000")
             options["institution"] = [record["value"] for record in result if record["value"]]
             
         return options
