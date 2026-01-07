@@ -77,7 +77,7 @@ async def get_top_institutions(
 @router.get("/trends")
 async def get_funding_trends(
     start_year_range: int = Query(2000, alias="start_year_min"),
-    end_year_range: int = Query(2024, alias="start_year_max"),
+    end_year_range: int = Query(2030, alias="start_year_max"),
     institution: Optional[str] = None,
     grant_type: Optional[str] = None,
     broad_research_area: Optional[str] = None,
@@ -105,5 +105,35 @@ async def get_filters():
         handler = get_neo4j_handler()
         options = handler.get_filter_options()
         return options
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/grants")
+async def get_grants(
+    limit: int = 50,
+    skip: int = 0,
+    institution: Optional[str] = None,
+    start_year: Optional[int] = None,
+    grant_type: Optional[str] = None,
+    broad_research_area: Optional[str] = None,
+    field_of_research: Optional[str] = None,
+    funding_body: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_by: str = "start_year",
+    order: str = "DESC"
+):
+    try:
+        handler = get_neo4j_handler()
+        filters = {
+            "institution": institution,
+            "start_year": start_year,
+            "grant_type": grant_type,
+            "broad_research_area": broad_research_area,
+            "field_of_research": field_of_research,
+            "funding_body": funding_body
+        }
+        filters = {k: v for k, v in filters.items() if v is not None}
+        grants = handler.get_grants_list(limit=limit, skip=skip, filters=filters, search=search, sort_by=sort_by, order=order)
+        return grants
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
