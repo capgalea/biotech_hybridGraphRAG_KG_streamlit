@@ -115,7 +115,7 @@ class Neo4jHandler:
         
         clauses = []
         for key, value in filters.items():
-            if not value:
+            if value is None or value == "":
                 continue
             
             if key == "institution":
@@ -123,6 +123,37 @@ class Neo4jHandler:
                 clauses.append(f"EXISTS {{ MATCH ({prefix})-[:HOSTED_BY]->(i:Institution) WHERE i.name = $institution }}")
             elif key == "start_year":
                 clauses.append(f"{prefix}.{key} = toInteger($start_year)")
+            elif key == "search":
+                # Smart search: split into terms and match ANY field (Title, Desc, ID, PI, Institution)
+                import re
+                # Tokenize search string: split by non-word chars (ignores quotes, punctuation)
+                # This ensures "antibacterial resistance" matches grants containing both words, adjacent or not.
+                terms = re.findall(r"\w+", value)
+                
+                search_subclauses = []
+                for term in terms:
+                    term_lower = term.lower().strip()
+                    if not term_lower or term_lower in ["and", "or", "&", "with"]: 
+                        continue
+                    
+                    # Sanitize input for Cypher string injection (basic)
+                    term_clean = term_lower.replace("'", "\\'")
+                    
+                    # 1. Check Grant Properties
+                    grant_check = f"(toLower({prefix}.title) CONTAINS '{term_clean}' OR toLower({prefix}.description) CONTAINS '{term_clean}' OR toLower({prefix}.application_id) CONTAINS '{term_clean}' OR toLower({prefix}.field_of_research) CONTAINS '{term_clean}' OR toLower({prefix}.broad_research_area) CONTAINS '{term_clean}' OR toLower({prefix}.grant_type) CONTAINS '{term_clean}' OR toLower({prefix}.funding_body) CONTAINS '{term_clean}')"
+                    
+                    # 2. Check Researcher Name (via relationship)
+                    pi_check = f"EXISTS {{ MATCH ({prefix})<-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]-(p:Researcher) WHERE toLower(p.name) CONTAINS '{term_clean}' }}"
+                    
+                    # 3. Check Institution Name (via relationship)
+                    inst_check = f"EXISTS {{ MATCH ({prefix})-[:HOSTED_BY]->(i:Institution) WHERE toLower(i.name) CONTAINS '{term_clean}' }}"
+                    
+                    # Join with OR: The term must appear in AT LEAST ONE of these places
+                    search_subclauses.append(f"({grant_check} OR {pi_check} OR {inst_check})")
+                
+                if search_subclauses:
+                    # Join with AND: ALL terms must be satisfied (Intersection)
+                    clauses.append(f"({' AND '.join(search_subclauses)})")
             else:
                 clauses.append(f"{prefix}.{key} = ${key}")
         
@@ -226,13 +257,12 @@ class Neo4jHandler:
 
     def get_grants_list(self, limit: int = 50, skip: int = 0, filters: Optional[Dict[str, Any]] = None, search: Optional[str] = None, sort_by: str = "start_year", order: str = "DESC") -> List[Dict]:
         """Get paginated list of grants with search and dynamic sorting"""
-        where_clause = self._build_filter_clause(filters)
-        
-        # Add search condition if provided
+        # Ensure search is handled via the smart filter builder
+        local_filters = (filters or {}).copy()
         if search:
-            search_clause = "(TOLOWER(g.title) CONTAINS TOLOWER($search) OR TOLOWER(g.description) CONTAINS TOLOWER($search) OR TOLOWER(g.application_id) CONTAINS TOLOWER($search))"
-            where_clause = f"({where_clause}) AND {search_clause}" if where_clause else search_clause
+            local_filters['search'] = search
             
+        where_clause = self._build_filter_clause(local_filters)
         where_str = f"WHERE {where_clause}" if where_clause else ""
         
         # Allowed sort fields to prevent injection
@@ -270,7 +300,7 @@ class Neo4jHandler:
         LIMIT $limit
         """
         
-        params = (filters or {}).copy()
+        params = local_filters.copy()
         params.update({'limit': limit, 'skip': skip, 'search': search})
         return self.execute_cypher(cypher, params)
 
