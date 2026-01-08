@@ -21,6 +21,8 @@ try:
 except ImportError:
     GoogleSearch = None
 
+from app.utils.biomcp_client import BioMCPClient
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ class LLMHandler:
         self.google_search_api_key = secrets.get("google", {}).get("search_api_key")
         self.google_search_engine_id = secrets.get("google", {}).get("cse_id")
         self.serpapi_key = secrets.get("serpapi", {}).get("api_key")
+        self.biomcp = BioMCPClient()
         
         self._init_client()
     
@@ -839,65 +842,85 @@ Cypher Query:"""
             formatted_sample.append(f"Result {i}: {dict(result)}")
         results_text = "\n".join(formatted_sample)
         
-        # Get Google Search results for additional context (if enabled)
-        search_results = []
+        # Get additional context using BioMCP (PubMed) if researchers are found
+        pubmed_context = ""
+        pubmed_articles = []
+        
+        # Extract researcher names from results to search PubMed
+        researchers_to_search = set()
+        for res in sample_results:
+            if isinstance(res, dict):
+                r_name = res.get('researcher') or res.get('r.name') or res.get('pi_name') or res.get('researcher_name')
+                if r_name:
+                    researchers_to_search.add(r_name)
+        
+        # Search PubMed for the first 1-2 researchers found
+        if researchers_to_search and self.biomcp.available:
+            for researcher in list(researchers_to_search)[:2]:
+                logger.info(f"Searching PubMed for researcher: {researcher}")
+                articles = self.biomcp.search_pubmed_by_researcher(researcher, limit=3)
+                if articles:
+                    pubmed_articles.extend(articles)
+        
+        if pubmed_articles:
+            pubmed_context = "\n\n### Relevant PubMed Articles (via BioMCP):\n"
+            for article in pubmed_articles:
+                citation = self.biomcp.format_article_citation(article)
+                pubmed_context += f"- {citation}\n"
+                if article.get('abstract'):
+                    pubmed_context += f"  Abstract: {article['abstract'][:200]}...\n"
+
+        # Web search context (only if enabled and BioMCP didn't yield enough, or as supplement)
         search_context = ""
         if include_search:
-            # Create enhanced search query based on actual database results
+             # Create enhanced search query based on actual database results
             enhanced_query = self._create_enhanced_search_query(query, sample_results)
             search_results = self._search_google(enhanced_query, num_results=3)
-        if search_results:
-            search_context = "\n\nAdditional Context from Web Search:\n"
-            for i, result in enumerate(search_results, 1):
-                search_context += f"Search Result {i}: {result['title']}\n"
-                
-                # Use LLM-generated summary if available, otherwise use snippet
-                if result.get('scraped_summary'):
-                    search_context += f"LLM Summary: {result['scraped_summary']}\n"
-                elif result.get('snippet'):
-                    search_context += f"Snippet: {result['snippet']}\n"
-                
-                search_context += f"Source: {result['link']}\n\n"
+            
+            if search_results:
+                search_context = "\n\n### Additional Web Context:\n"
+                for i, result in enumerate(search_results, 1):
+                    search_context += f"Search Result {i}: {result['title']}\n"
+                    if result.get('scraped_summary'):
+                        search_context += f"LLM Summary: {result['scraped_summary']}\n"
+                    elif result.get('snippet'):
+                        search_context += f"Snippet: {result['snippet']}\n"
+                    search_context += f"Source: {result['link']}\n\n"
         
-        prompt = f"""Analyze the following biotech/medical research database query results and provide a well-structured summary with additional web context.
+        prompt = f"""Analyze the following biotech/medical research database query results and provide a structured summary.
 
 Original Query: {query}
 Total Results Found: {total_results}
-Sample Results (showing {sample_size} of {total_results}):
-{results_text}{search_context}
 
-Create a comprehensive summary using the following structure with clear markdown headers:
+Sample Database Results:
+{results_text}
+
+{pubmed_context}
+{search_context}
+
+Create a summary using ONLY the following headers and format. This format is MANDATORY for all grant-related queries:
+
+## Title
+A title closely matching the 'Original Query' (e.g., "Grant Analysis: [User's Query]"). Format the content line as a blockquote, starting with '> '.
 
 ## Overview
-State the exact number of results found ({total_results}) and main research focus areas.
+Provide a brief biography of the researcher(s) involved and a summary of their overall research focus, utilizing available web search context if provided. Focus on their scientific contributions and expertise.
 
-## Grant Portfolio 
-List specific grants with funding amounts, years, and purposes (if available).
+## Grants
+List the key grants found with a short description for each. Use the format:
+1. **Grant Title** ($Amount, Year): Short description of the grant's purpose. ([Google Scholar](https://scholar.google.com/scholar?q=keywords%20from%20title%20and%20description))
 
-## Research Impact
-Explain how these grants advance medical science, drug development, or healthcare.
+Ensure the keywords in the Google Scholar link are a combination of significant terms from both the title and the description.
 
 ## Key Research Themes
-Identify major research areas, methodologies, or breakthrough potential.
+Identify the major research areas and methodologies.
 
-## Practical Applications
-Describe real-world benefits, therapeutic targets, or clinical outcomes.
-
-## Innovation Highlights
-Highlight novel approaches, technologies, or collaborations.
-
-## External References
-If web search results are available, include relevant external information and cite the sources with links.
-
-IMPORTANT FORMATTING RULES:
-- Use proper number formatting (e.g., $2,981,630 not $2,981,630)
-- Ensure no character separation in words or numbers
-- Use clear section headers with ##
-- Be accurate about the total count: {total_results} results
-- Write in complete, well-formed sentences
-- Include clickable links for external references in markdown format: [Title](URL)
-
-Summary:"""
+IMPORTANT:
+- YOU MUST FOLLOW THIS FORMAT EXACTLY.
+- Use proper number formatting for currency (e.g., $1,200,000).
+- Be accurate about the data provided.
+- Do not make up external references; use the provided context.
+"""
 
         try:
             summary = ""
@@ -969,8 +992,12 @@ Summary:"""
         # Generate structured fallback summary with real data
         summary_parts = []
         
-        # Overview section
-        summary_parts.append(f"## Overview")
+        # Title section
+        summary_parts.append(f"## Title")
+        summary_parts.append(f"> Grant Analysis: {query}")
+        summary_parts.append("")
+        
+        # Overview/Stats
         summary_parts.append(f"Found {count} results for query: {query}")
         
         # Extract actual data from results
@@ -1020,16 +1047,52 @@ Summary:"""
                     if year:
                         years.append(str(year).strip())
             
+            # Overview Section
+            summary_parts.append(f"\n\n## Overview")
+            overview_text = "This analysis covers research conducted"
+            if researchers:
+                researcher_list = ', '.join(list(researchers)[:3])
+                if len(researchers) > 3:
+                    researcher_list += f" and {len(researchers) - 3} others"
+                overview_text += f" by **{researcher_list}**"
+            
+            if institutions:
+                inst_list = ', '.join(list(institutions)[:2])
+                if len(institutions) > 2:
+                    inst_list += f" and {len(institutions) - 2} other institutions"
+                overview_text += f" at **{inst_list}**"
+            
+            overview_text += "."
+            summary_parts.append(overview_text)
+
             # Grant Portfolio section with actual grants
-            summary_parts.append(f"\n## Grant Portfolio")
+            summary_parts.append(f"\n\n## Grants")
             if grants_data:
                 summary_parts.append(f"The portfolio includes {len(grants_data)} research grants:\n")
                 
                 # Show top 5 grants with details
                 for i, grant in enumerate(grants_data[:5]):
-                    # Format each grant on its own line with clear structure
                     grant_title = grant['title'][:80] + "..." if len(grant['title']) > 80 else grant['title']
-                    grant_info = f"• **{grant_title}**"
+                    
+                    # Create better keywords for search: Title + Researcher + Institution
+                    description = str(grant.get('description', ''))
+                    
+                    # 1. Use cleaned title words
+                    stopwords = {'the', 'and', 'for', 'with', 'from', 'into', 'study', 'research', 'analysis', 'project', 'grant', 'funding', 'investigation', 'development', 'characterisation', 'understanding', 'role', 'mechanism', 'using'}
+                    title_words = [w for w in grant['title'].split() if w.lower().strip(".,()[]:-") not in stopwords and len(w) > 3]
+                    search_terms = title_words[:6]
+                    
+                    # 2. Add Researcher Name
+                    if grant.get('researcher'):
+                        search_terms.append(str(grant['researcher']))
+                        
+                    # 3. Add Institution Name
+                    if grant.get('institution'):
+                        search_terms.append(str(grant['institution']))
+                        
+                    search_query = "+".join(search_terms).replace(" ", "+")
+                    
+                    grant_info = f"{i+1}. **{grant_title}**"
                     
                     # Add funding amount if available
                     if grant['amount']:
@@ -1043,6 +1106,26 @@ Summary:"""
                     # Add year if available
                     if grant['year'] and grant['year'].isdigit():
                         grant_info += f" — {grant['year']}"
+                    
+                    # Add Google Scholar Link
+                    grant_info += f" ([Google Scholar](https://scholar.google.com/scholar?q={search_query}))"
+
+                    # Add Related Papers (via Semantic Scholar as Paperscraper backend)
+                    try:
+                        from semanticscholar import SemanticScholar
+                        sch = SemanticScholar()
+                        # Use the constructed search tokens (Title words, Researcher, Institution)
+                        query_str = " ".join(search_terms)
+                        paper_results = sch.search_paper(query_str, limit=3)
+                        
+                        if paper_results:
+                            grant_info += "\n    *   **Related Papers:**"
+                            for p in paper_results:
+                                p_title = p.title or "Untitled"
+                                p_url = p.url or f"https://www.semanticscholar.org/paper/{p.paperId}"
+                                grant_info += f"\n        *   [{p_title}]({p_url})"
+                    except Exception:
+                        pass # Fail gracefully if search fails or module acts up
                     
                     summary_parts.append(grant_info)
                 
@@ -1082,28 +1165,7 @@ Summary:"""
             
             summary_parts.append(f"Database search identified **{count}** relevant records with comprehensive grant and researcher information.")
             
-            # Add External References section with Google Search results (if enabled)
-            if include_search:
-                search_results = self._search_google(query, num_results=3)
-            else:
-                search_results = []
-            if search_results:
-                summary_parts.append(f"\n## External References")
-                summary_parts.append("Additional information from web search:")
-                summary_parts.append("")
-                
-                for i, result in enumerate(search_results, 1):
-                    ref_title = result['title'][:100] + "..." if len(result['title']) > 100 else result['title']
-                    summary_parts.append(f"{i}. **[{ref_title}]({result['link']})**")
-                    
-                    # Use LLM-generated summary if available, otherwise use snippet
-                    if result.get('scraped_summary'):
-                        summary_parts.append(f"   **Analysis**: {result['scraped_summary']}")
-                    elif result.get('snippet'):
-                        snippet = result['snippet'][:200] + "..." if len(result['snippet']) > 200 else result['snippet']
-                        summary_parts.append(f"   **Snippet**: {snippet}")
-                    
-                    summary_parts.append("")
+            summary_parts.append(f"Database search identified **{count}** relevant records with comprehensive grant and researcher information.")
             
         return "\n".join(summary_parts)
     
