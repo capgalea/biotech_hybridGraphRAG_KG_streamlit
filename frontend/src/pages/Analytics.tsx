@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   BarChart,
   ComposedChart,
@@ -35,6 +36,7 @@ export const Analytics = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: "start_year", direction: "DESC" });
+  const [hoveredCell, setHoveredCell] = useState<{ content: string; x: number; y: number } | null>(null);
 
   const [columns, setColumns] = useState([
     { id: "title", label: "Grant Title", visible: true, width: 250 },
@@ -62,14 +64,18 @@ export const Analytics = () => {
     setLoading(true);
     try {
       // Clean filters (remove empty strings)
-      const activeFilters = Object.fromEntries(
+      const activeFilters: Record<string, any> = Object.fromEntries(
         Object.entries(filters).filter(([_, v]) => v !== "")
       );
+      
+      if (debouncedSearch) {
+        activeFilters.search = debouncedSearch;
+      }
 
       // Determine year range from filterOptions if available, otherwise use defaults
       let minYear = 2005;
       let maxYear = 2024;
-
+      
       if (filterOptions?.start_year && filterOptions.start_year.length > 0) {
         const years = filterOptions.start_year
           .map((y: string) => parseInt(y))
@@ -139,9 +145,10 @@ export const Analytics = () => {
       field_of_research: "",
       funding_body: ""
     });
+    setSearchTerm("");
   };
 
-  const hasActiveFilters = Object.values(filters).some(v => v !== "");
+  const hasActiveFilters = Object.values(filters).some(v => v !== "") || searchTerm !== "";
 
   const toggleColumnVisibility = (id: string) => {
     setColumns(prev => prev.map(col => 
@@ -210,6 +217,23 @@ export const Analytics = () => {
           <span>Filters</span>
         </div>
         
+        {/* Search Input */}
+        <div className="mb-6">
+           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">
+              Search Grants
+           </label>
+           <div className="relative">
+             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+             <input
+               type="text"
+               placeholder="Refine by keyword (e.g., 'cancer', 'genomics'), title, researcher, or ID..."
+               value={searchTerm}
+               onChange={(e) => setSearchTerm(e.target.value)}
+               className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+             />
+           </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Administering Organization */}
           <div className="space-y-1.5">
@@ -439,16 +463,6 @@ export const Analytics = () => {
         <div className="p-6 border-b border-gray-200 flex flex-wrap justify-between items-center bg-gray-50/50 gap-4">
           <div className="flex-1 min-w-[300px]">
             <h3 className="text-lg font-bold text-gray-900">Grant Details</h3>
-            <div className="mt-2 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="text"
-                placeholder="Search by title, description, or ID..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none shadow-sm"
-              />
-            </div>
           </div>
           <div className="flex items-center gap-3 relative">
             <button
@@ -550,37 +564,58 @@ export const Analytics = () => {
               ) : grants.length > 0 ? (
                 grants.map((grant, idx) => (
                   <tr key={idx} className="hover:bg-blue-50/30 transition-colors group">
-                    {visibleColumns.map((col) => (
-                      <td key={col.id} className="px-6 py-4 text-sm text-gray-700">
-                        {col.id === "amount" ? (
-                          <span className="font-mono font-medium text-green-700">
-                            {grant[col.id] ? `$${Number(grant[col.id]).toLocaleString()}` : "$0"}
-                          </span>
-                        ) : col.id === "description" ? (
-                          <div className="max-w-xs truncate" title={grant[col.id]}>
-                            {grant[col.id]}
-                          </div>
-                        ) : col.id === "application_id" ? (
-                          <span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono text-gray-500 group-hover:bg-white transition-colors">
-                            {grant[col.id]}
-                          </span>
-                        ) : col.id === "pi_name" ? (
-                          grant.pi_name || <span className="text-gray-300 italic">No PI</span>
-                        ) : col.id === "institution_name" ? (
-                          grant.institution_name || <span className="text-gray-300 italic">No Inst.</span>
-                        ) : col.id === "grant_status" ? (
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    {visibleColumns.map((col) => {
+                      let content: React.ReactNode = grant[col.id];
+                      let textContent = String(grant[col.id] || "");
+
+                      // formatting logic
+                      if (col.id === "amount") {
+                        textContent = grant[col.id] ? `$${Number(grant[col.id]).toLocaleString()}` : "$0";
+                        content = <span className="font-mono font-medium text-green-700">{textContent}</span>;
+                      } else if (col.id === "description") {
+                         // Removed truncate, allow wrap. Text content is just the raw description.
+                         textContent = grant[col.id] || "";
+                         content = textContent;
+                      } else if (col.id === "application_id") {
+                         textContent = grant[col.id] || "";
+                         content = <span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono text-gray-500 group-hover:bg-white transition-colors">{textContent}</span>;
+                      } else if (col.id === "pi_name") {
+                         textContent = grant.pi_name || "No PI";
+                         content = grant.pi_name || <span className="text-gray-300 italic">No PI</span>;
+                      } else if (col.id === "institution_name") {
+                         textContent = grant.institution_name || "No Inst.";
+                         content = grant.institution_name || <span className="text-gray-300 italic">No Inst.</span>;
+                      } else if (col.id === "grant_status") {
+                         textContent = grant.grant_status || "N/A";
+                         content = <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             grant.grant_status === 'Approved' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                          }`}>
-                            {grant.grant_status || "N/A"}
-                          </span>
-                        ) : col.id === "start_year" ? (
-                          grant.start_year || <span className="text-gray-300 italic">N/A</span>
-                        ) : (
-                          grant[col.id] || <span className="text-gray-300 italic">N/A</span>
-                        )}
+                          }`}>{textContent}</span>;
+                      } else if (col.id === "start_year") {
+                         textContent = grant.start_year || "N/A";
+                         content = grant.start_year || <span className="text-gray-300 italic">N/A</span>;
+                      } else {
+                         if (!grant[col.id]) content = <span className="text-gray-300 italic">N/A</span>;
+                      }
+                      
+                      return (
+                      <td 
+                        key={col.id} 
+                        className="px-6 py-4 text-sm text-gray-700 align-top"
+                        onMouseEnter={(e) => {
+                           if (textContent && textContent !== "N/A" && textContent !== "No PI" && textContent !== "No Inst.") {
+                              setHoveredCell({ content: textContent, x: e.clientX, y: e.clientY });
+                           }
+                        }}
+                        onMouseMove={(e) => {
+                           if (hoveredCell) setHoveredCell(prev => prev ? ({ ...prev, x: e.clientX, y: e.clientY }) : null);
+                        }}
+                        onMouseLeave={() => setHoveredCell(null)}
+                      >
+                         <div className="line-clamp-3 whitespace-normal break-words" style={{ maxWidth: col.width }}>
+                           {content}
+                         </div>
                       </td>
-                    ))}
+                    );})}
                   </tr>
                 ))
               ) : (
@@ -600,6 +635,19 @@ export const Analytics = () => {
           )}
         </div>
       </div>
+      
+      {hoveredCell && createPortal(
+        <div 
+          className="fixed z-[9999] bg-gray-900/95 text-white p-4 rounded-lg shadow-xl max-w-sm text-sm pointer-events-none backdrop-blur-sm border border-white/10"
+          style={{
+            left: hoveredCell.x + 16,
+            top: hoveredCell.y + 16,
+          }}
+        >
+          {hoveredCell.content}
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
