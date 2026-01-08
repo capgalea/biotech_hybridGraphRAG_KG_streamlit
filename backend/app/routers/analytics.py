@@ -5,13 +5,18 @@ from app.config import settings
 
 router = APIRouter()
 
+_handler = None
+
 def get_neo4j_handler():
-    return Neo4jHandler(
-        uri=settings["neo4j"]["uri"],
-        user=settings["neo4j"]["user"],
-        password=settings["neo4j"]["password"],
-        database=settings["neo4j"]["database"]
-    )
+    global _handler
+    if _handler is None:
+        _handler = Neo4jHandler(
+            uri=settings["neo4j"]["uri"],
+            user=settings["neo4j"]["user"],
+            password=settings["neo4j"]["password"],
+            database=settings["neo4j"]["database"]
+        )
+    return _handler
 
 @router.get("/stats")
 async def get_stats(
@@ -20,7 +25,8 @@ async def get_stats(
     grant_type: Optional[str] = None,
     broad_research_area: Optional[str] = None,
     field_of_research: Optional[str] = None,
-    funding_body: Optional[str] = None
+    funding_body: Optional[str] = None,
+    search: Optional[str] = None
 ):
     try:
         handler = get_neo4j_handler()
@@ -30,7 +36,8 @@ async def get_stats(
             "grant_type": grant_type,
             "broad_research_area": broad_research_area,
             "field_of_research": field_of_research,
-            "funding_body": funding_body
+            "funding_body": funding_body,
+            "search": search
         }
         # Filter out None values
         filters = {k: v for k, v in filters.items() if v is not None}
@@ -56,7 +63,8 @@ async def get_top_institutions(
     grant_type: Optional[str] = None,
     broad_research_area: Optional[str] = None,
     field_of_research: Optional[str] = None,
-    funding_body: Optional[str] = None
+    funding_body: Optional[str] = None,
+    search: Optional[str] = None
 ):
     try:
         handler = get_neo4j_handler()
@@ -66,7 +74,8 @@ async def get_top_institutions(
             "grant_type": grant_type,
             "broad_research_area": broad_research_area,
             "field_of_research": field_of_research,
-            "funding_body": funding_body
+            "funding_body": funding_body,
+            "search": search
         }
         filters = {k: v for k, v in filters.items() if v is not None}
         institutions = handler.get_top_institutions(limit=limit, filters=filters)
@@ -82,7 +91,8 @@ async def get_funding_trends(
     grant_type: Optional[str] = None,
     broad_research_area: Optional[str] = None,
     field_of_research: Optional[str] = None,
-    funding_body: Optional[str] = None
+    funding_body: Optional[str] = None,
+    search: Optional[str] = None
 ):
     try:
         handler = get_neo4j_handler()
@@ -91,7 +101,8 @@ async def get_funding_trends(
             "grant_type": grant_type,
             "broad_research_area": broad_research_area,
             "field_of_research": field_of_research,
-            "funding_body": funding_body
+            "funding_body": funding_body,
+            "search": search
         }
         filters = {k: v for k, v in filters.items() if v is not None}
         trends = handler.get_funding_trends(start_year=start_year_range, end_year=end_year_range, filters=filters)
