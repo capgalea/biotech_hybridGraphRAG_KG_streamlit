@@ -5,19 +5,22 @@ import { Home } from "./pages/Home";
 import { Analytics } from "./pages/Analytics";
 import { Collaboration } from "./pages/Collaboration";
 import { GraphViz } from "./pages/GraphViz";
+import { GlobalStateProvider } from "./context/GlobalStateContext";
 
 function App() {
   return (
-    <Router>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/collaboration" element={<Collaboration />} />
-          <Route path="/graph" element={<GraphViz />} />
-        </Routes>
-      </Layout>
-    </Router>
+    <GlobalStateProvider>
+      <Router>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/collaboration" element={<Collaboration />} />
+            <Route path="/graph" element={<GraphViz />} />
+          </Routes>
+        </Layout>
+      </Router>
+    </GlobalStateProvider>
   );
 }
 

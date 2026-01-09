@@ -818,6 +818,78 @@ Cypher Query:"""
             return "MATCH (r1:Researcher)-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]->(g:Grant)<-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]-(r2:Researcher) WHERE r1 <> r2 RETURN r1, r2, g ORDER BY g.start_year DESC LIMIT 20"
         else:
             return "MATCH (g:Grant) RETURN g ORDER BY g.start_year DESC LIMIT 20"
+            
+    def _get_related_papers_html(self, title: str, grant_id: str = None, funder: str = None) -> str:
+        """Helper to fetch related papers from OpenAlex using Targeted Prompt (ID + Funder) or Title"""
+        try:
+            import requests
+            import urllib.parse
+            
+            logger.info(f"Searching OpenAlex. Title: {title}, ID: {grant_id}, Funder: {funder}")
+            
+            p_results = []
+            
+            # 1. Targeted Search: Grant ID + Funder (Most Precise / "Deep Research" prompt)
+            if grant_id and funder:
+                # OpenAlex fulltext search is powerful. "NHMRC APP1169076" 
+                query_str = f'"{funder}" "{grant_id}"'
+                safe_query = urllib.parse.quote(query_str)
+                url = f"https://api.openalex.org/works?search={safe_query}&per-page=3"
+                try:
+                    resp = requests.get(url, timeout=4)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        results = data.get('results', [])
+                        if results:
+                            p_results = results
+                            logger.info(f"Found {len(results)} papers via Targeted Search ({query_str})")
+                except Exception as e:
+                    logger.warning(f"Targeted search failed: {e}")
+
+            # 2. Fallback: Title Search
+            if not p_results and title:
+                safe_title = urllib.parse.quote(title)
+                url = f"https://api.openalex.org/works?search={safe_title}&per-page=3"
+                
+                # Short timeout to not block UI too long
+                try:
+                    resp = requests.get(url, timeout=3)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if not p_results: # Don't overwrite if found
+                             p_results = data.get('results', [])
+                except:
+                   pass
+                
+            # 3. Key Term Fallback 
+            if not p_results and title:
+                # Use long words (>4 chars) as keywords
+                words = [w for w in title.split() if len(w) > 4]
+                if words:
+                    safe_terms = urllib.parse.quote(" ".join(words[:5]))
+                    url = f"https://api.openalex.org/works?search={safe_terms}&per-page=3"
+                    try:
+                        resp = requests.get(url, timeout=3)
+                        if resp.status_code == 200:
+                            p_results = resp.json().get('results', [])
+                    except:
+                        pass
+
+            if p_results:
+                label = "Related Research Papers (Targeted Grant Search)" if (grant_id and funder) else "Related Research Papers (OpenAlex)"
+                html = f"<br><br><details class='bg-blue-50 p-2 rounded border border-blue-100 text-sm mt-1'><summary class='cursor-pointer font-semibold text-blue-700 hover:text-blue-900'>📚 {label}</summary><ul class='list-disc pl-5 mt-2 space-y-1'>"
+                for work in p_results:
+                    w_title = work.get('title') or "Untitled Work"
+                    # Prefer DOI link, then ID
+                    link = work.get('doi') or work.get('id') or "#"
+                    html += f"<li><a href='{link}' target='_blank' class='text-blue-600 hover:underline'>{w_title}</a></li>"
+                html += "</ul></details>"
+                return html
+            else:
+                 return "<br><span class='text-xs text-gray-400 italic mt-1 block ml-4'>— No related public papers found. —</span>"
+        except Exception as e:
+            logger.error(f"OpenAlex Error: {str(e)}")
+            return ""
     
     def generate_summary(self, query: str, results: list, include_search: bool = True) -> str:
         """
@@ -908,7 +980,7 @@ Provide a brief biography of the researcher(s) involved and a summary of their o
 
 ## Grants
 List the key grants found with a short description for each. Use the format:
-1. **Grant Title** ($Amount, Year): Short description of the grant's purpose. ([Google Scholar](https://scholar.google.com/scholar?q=keywords%20from%20title%20and%20description))
+1. **Grant Title** (ID: [Grant Application ID], Funder: [Funding Body Name], $Amount, Year): Short description of the grant's purpose. ([Google Scholar](https://scholar.google.com/scholar?q=keywords%20from%20title%20and%20description))
 
 Ensure the keywords in the Google Scholar link are a combination of significant terms from both the title and the description.
 
@@ -975,7 +1047,44 @@ IMPORTANT:
             
             # Fallback summary if no response
             if not summary:
-                summary = self._generate_fallback_summary(query, results, include_search)
+                return self._generate_fallback_summary(query, results, include_search)
+            
+            # Post-process summary to inject OpenAlex papers for grants
+            try:
+                import re
+                lines = summary.split('\n')
+                new_lines = []
+                for line in lines:
+                    new_lines.append(line)
+                    # Match pattern: "1. **Grant Title**" or "1. ** Grant Title **"
+                    # Capture title content inside **...**
+                    match = re.search(r'^\d+\.\s+\*\*(.+?)\*\*', line)
+                    if match:
+                        title = match.group(1).strip()
+                        
+                        # Extract ID and Funder if present in parentheses or line
+                        # Look for content like (ID: APP123, Funder: NHMRC, ...)
+                        grant_id = None
+                        funder = None
+                        
+                        # Search for metadata structure
+                        id_match = re.search(r'ID:\s*([^,)]+)', line)
+                        funder_match = re.search(r'Funder:\s*([^,)]+)', line)
+                        
+                        if id_match:
+                            grant_id = id_match.group(1).strip()
+                        if funder_match:
+                            funder = funder_match.group(1).strip()
+                            
+                        # Only fetch if it looks like a real title (length check)
+                        if len(title) > 5:
+                            papers_html = self._get_related_papers_html(title, grant_id, funder)
+                            if papers_html:
+                                new_lines.append(papers_html)
+                
+                summary = '\n'.join(new_lines)
+            except Exception as e:
+                logger.error(f"Error injecting papers into summary: {e}")
             
             return summary
                 
@@ -1094,6 +1203,10 @@ IMPORTANT:
                     
                     grant_info = f"{i+1}. **{grant_title}**"
                     
+                    # Update Fallback logic to include ID/Funder in text too, so parsing is consistent if needed, or just standard display
+                    # Actually, for fallback we build grant_info directly, so we can pass ID to _get_related_papers_html later or append now.
+                    # Let's keep display standard but use the data for the search.
+                    
                     # Add funding amount if available
                     if grant['amount']:
                         try:
@@ -1110,22 +1223,61 @@ IMPORTANT:
                     # Add Google Scholar Link
                     grant_info += f" ([Google Scholar](https://scholar.google.com/scholar?q={search_query}))"
 
-                    # Add Related Papers (via Semantic Scholar as Paperscraper backend)
+                    # Add Related Papers (via Semantic Scholar)
+                    # Add Related Papers (via OpenAlex)
                     try:
-                        from semanticscholar import SemanticScholar
-                        sch = SemanticScholar()
-                        # Use the constructed search tokens (Title words, Researcher, Institution)
-                        query_str = " ".join(search_terms)
-                        paper_results = sch.search_paper(query_str, limit=3)
+                        import requests
+                        import urllib.parse
                         
-                        if paper_results:
-                            grant_info += "\n    *   **Related Papers:**"
-                            for p in paper_results:
-                                p_title = p.title or "Untitled"
-                                p_url = p.url or f"https://www.semanticscholar.org/paper/{p.paperId}"
-                                grant_info += f"\n        *   [{p_title}]({p_url})"
-                    except Exception:
-                        pass # Fail gracefully if search fails or module acts up
+                        logger.info(f"Searching OpenAlex for: {grant_title}")
+                        
+                        # 1. Try Title Search
+                        safe_title = urllib.parse.quote(grant['title'])
+                        url = f"https://api.openalex.org/works?search={safe_title}&per-page=3"
+                        
+                        resp = requests.get(url, timeout=10)
+                        p_results = []
+                        
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            p_results = data.get('results', [])
+                            
+                        # 2. Key Term Fallback if Title failed
+                        if not p_results:
+                            logger.info("Title search failed. Trying keywords.")
+                            # Use top 4 keywords + "research" to ground it
+                            joined_terms = " ".join(search_terms[:4])
+                            safe_terms = urllib.parse.quote(joined_terms)
+                            url = f"https://api.openalex.org/works?search={safe_terms}&per-page=3"
+                            resp = requests.get(url, timeout=10)
+                            if resp.status_code == 200:
+                                p_results = resp.json().get('results', [])
+
+                        # Build HTML
+                        if p_results:
+                            grant_info += "<br><br><details class='bg-blue-50 p-2 rounded border border-blue-100 text-sm mt-1'><summary class='cursor-pointer font-semibold text-blue-700 hover:text-blue-900'>📚 Related Research Papers (OpenAlex)</summary><ul class='list-disc pl-5 mt-2 space-y-1'>"
+                            for work in p_results:
+                                title = work.get('title') or "Untitled Work"
+                                # Prefer DOI link, then ID
+                                link = work.get('doi') or work.get('id') or "#"
+                                grant_info += f"<li><a href='{link}' target='_blank' class='text-blue-600 hover:underline'>{title}</a></li>"
+                            grant_info += "</ul></details>"
+                        else:
+                            # Explicitly show zero results for debugging confidence
+                            grant_info += "<br><span class='text-xs text-gray-400 italic mt-1 block ml-4'>— No related public papers found. —</span>"
+
+                    except Exception as e:
+                        logger.error(f"OpenAlex Error: {str(e)}")
+                        grant_info += f"<br><span class='text-xs text-red-400'>Error loading papers.</span>"
+                    
+                    # Add Related Papers (via OpenAlex)
+                    # Use fallback data directly
+                    gid = str(grant.get('application_id', ''))
+                    funder_name = str(grant.get('funding_body', ''))
+                    
+                    papers_html = self._get_related_papers_html(grant['title'], gid, funder_name)
+                    if papers_html:
+                         grant_info += papers_html
                     
                     summary_parts.append(grant_info)
                 

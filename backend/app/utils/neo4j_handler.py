@@ -114,20 +114,28 @@ class Neo4jHandler:
             return ""
         
         clauses = []
+        clauses = []
         for key, value in filters.items():
             if value is None or value == "":
                 continue
             
             if key == "institution":
-                # Special case for relationship-based filter
+                # Strict Match (Dropdown)
                 clauses.append(f"EXISTS {{ MATCH ({prefix})-[:HOSTED_BY]->(i:Institution) WHERE i.name = $institution }}")
+            
+            elif key == "institution_name":
+                # Partial Match (Column Search)
+                clauses.append(f"EXISTS {{ MATCH ({prefix})-[:HOSTED_BY]->(i:Institution) WHERE toLower(i.name) CONTAINS toLower($institution_name) }}")
+                
+            elif key in ["pi_name", "researcher_name", "researcher"]:
+                # Partial Match on Researcher
+                clauses.append(f"EXISTS {{ MATCH ({prefix})<-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]-(p:Researcher) WHERE toLower(p.name) CONTAINS toLower(${key}) }}")
+
             elif key == "start_year":
                 clauses.append(f"{prefix}.{key} = toInteger($start_year)")
+                
             elif key == "search":
-                # Smart search: split into terms and match ANY field (Title, Desc, ID, PI, Institution)
                 import re
-                # Tokenize search string: split by non-word chars (ignores quotes, punctuation)
-                # This ensures "antibacterial resistance" matches grants containing both words, adjacent or not.
                 terms = re.findall(r"\w+", value)
                 
                 search_subclauses = []
@@ -148,13 +156,17 @@ class Neo4jHandler:
                     # 3. Check Institution Name (via relationship)
                     inst_check = f"EXISTS {{ MATCH ({prefix})-[:HOSTED_BY]->(i:Institution) WHERE toLower(i.name) CONTAINS '{term_clean}' }}"
                     
-                    # Join with OR: The term must appear in AT LEAST ONE of these places
                     search_subclauses.append(f"({grant_check} OR {pi_check} OR {inst_check})")
                 
                 if search_subclauses:
-                    # Join with AND: ALL terms must be satisfied (Intersection)
                     clauses.append(f"({' AND '.join(search_subclauses)})")
+            
+            elif key in ["title", "grant_status", "funding_body", "application_id", "grant_type", "broad_research_area", "field_of_research", "description"]:
+                 # Generic Partial Match for Text Properties
+                clauses.append(f"toLower({prefix}.{key}) CONTAINS toLower(${key})")
+
             else:
+                # Default Match
                 clauses.append(f"{prefix}.{key} = ${key}")
         
         return " AND ".join(clauses) if clauses else ""
