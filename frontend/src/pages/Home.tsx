@@ -1,14 +1,18 @@
 import React, { useState } from "react";
-import { Send, Loader2 } from "lucide-react";
+import { Send, Loader2, RotateCcw } from "lucide-react";
 import { queryService } from "../services/api";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import { useGlobalState } from "../context/GlobalStateContext";
 
 export const Home = () => {
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [llmModel, setLlmModel] = useState("claude-4-5-sonnet");
-  const [enableSearch, setEnableSearch] = useState(false);
+    const { homeState, setHomeState } = useGlobalState();
+    const { query, result, llmModel, enableSearch } = homeState;
+    const [loading, setLoading] = useState(false);
+
+    const updateState = (updates: Partial<typeof homeState>) => {
+        setHomeState(prev => ({ ...prev, ...updates }));
+    };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,17 +25,26 @@ export const Home = () => {
         llmModel,
         enableSearch
       );
-      setResult(response.data);
+      updateState({ result: response.data });
     } catch (error: any) {
       console.error("Search failed", error);
       const errorMessage =
         error.response?.data?.detail ||
         error.message ||
         "Failed to process query";
-      setResult({ error: errorMessage });
+      updateState({ result: { error: errorMessage } });
     } finally {
       setLoading(false);
     }
+  };
+  
+  const handleReset = () => {
+      setHomeState({
+          query: "",
+          result: null,
+          llmModel: "claude-4-5-sonnet",
+          enableSearch: false
+      });
   };
 
   return (
@@ -52,21 +65,34 @@ export const Home = () => {
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => updateState({ query: e.target.value })}
               placeholder="e.g., Find grants related to CRISPR in 2024..."
               className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
             />
-            <button
-              type="submit"
-              disabled={loading}
-              className="absolute right-2 top-2 p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {loading ? (
-                <Loader2 className="animate-spin" size={20} />
-              ) : (
-                <Send size={20} />
-              )}
-            </button>
+            {/* Action Buttons */}
+            <div className="absolute right-2 top-2 flex gap-1">
+                {result && (
+                     <button
+                        type="button"
+                        onClick={handleReset}
+                        className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                        title="Clear Results"
+                     >
+                        <RotateCcw size={20} />
+                     </button>
+                )}
+                <button
+                type="submit"
+                disabled={loading}
+                className="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                {loading ? (
+                    <Loader2 className="animate-spin" size={20} />
+                ) : (
+                    <Send size={20} />
+                )}
+                </button>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-4 items-center text-sm text-gray-600">
@@ -74,7 +100,7 @@ export const Home = () => {
               <label>Model:</label>
               <select
                 value={llmModel}
-                onChange={(e) => setLlmModel(e.target.value)}
+                onChange={(e) => updateState({ llmModel: e.target.value })}
                 className="border rounded px-2 py-1 bg-gray-50"
               >
                 <option value="claude-4-5-sonnet">Claude 4.5 Sonnet</option>
@@ -89,7 +115,7 @@ export const Home = () => {
               <input
                 type="checkbox"
                 checked={enableSearch}
-                onChange={(e) => setEnableSearch(e.target.checked)}
+                onChange={(e) => updateState({ enableSearch: e.target.checked })}
                 className="rounded text-blue-600 focus:ring-blue-500"
               />
               <span>Enable Web Search <span className="text-gray-400 text-xs italic ml-1">(Required for Researcher Overview)</span></span>
@@ -109,6 +135,7 @@ export const Home = () => {
               {result.summary && (
                 <div className="prose max-w-none">
                   <ReactMarkdown
+                    rehypePlugins={[rehypeRaw]}
                     components={{
                       a: ({ node, ...props }) => {
                         const isScholar = props.href?.includes('scholar.google.com');
