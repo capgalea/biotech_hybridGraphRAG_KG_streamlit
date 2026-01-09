@@ -34,17 +34,19 @@ export const Analytics = () => {
   };
 
   // Handle search debouncing
+  // Handle search debouncing
   useEffect(() => {
     const timer = setTimeout(() => {
-      updateState({ debouncedSearch: searchTerm });
+      updateState({ debouncedSearch: searchTerm, isLoaded: false });
     }, 500);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   // Handle column filter debouncing
+  // Handle column filter debouncing
   useEffect(() => {
     const timer = setTimeout(() => {
-      updateState({ debouncedColumnFilters: columnFilters });
+      updateState({ debouncedColumnFilters: columnFilters, isLoaded: false });
     }, 500);
     return () => clearTimeout(timer);
   }, [columnFilters]);
@@ -167,11 +169,13 @@ export const Analytics = () => {
         },
         searchTerm: "",
         debouncedSearch: "",
+        columnFilters: {},
+        debouncedColumnFilters: {},
         isLoaded: false
     }));
   };
 
-  const hasActiveFilters = Object.values(filters).some(v => v !== "") || searchTerm !== "";
+  const hasActiveFilters = Object.values(filters).some(v => v !== "") || searchTerm !== "" || Object.keys(columnFilters).length > 0;
 
   const toggleColumnVisibility = (id: string) => {
     setAnalyticsState(prev => ({
@@ -247,9 +251,10 @@ export const Analytics = () => {
             <button
                 onClick={clearFilters}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                title="Clear all active filters"
             >
                 <X size={16} />
-                Clear Filters
+                Clear All Filters
             </button>
             )}
         </div>
@@ -517,7 +522,7 @@ export const Analytics = () => {
                 type="text" 
                 placeholder="Search within table..." 
                 value={searchTerm}
-                onChange={(e) => updateState({ searchTerm: e.target.value, isLoaded: false })}
+                onChange={(e) => updateState({ searchTerm: e.target.value })}
                 className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none w-64 hover:border-blue-300 transition-all shadow-sm"
               />
             </div>
@@ -623,8 +628,7 @@ export const Analytics = () => {
                                   value={columnFilters[col.id] || ""}
                                   onChange={(e) => setAnalyticsState(prev => ({ 
                                       ...prev, 
-                                      columnFilters: { ...prev.columnFilters, [col.id]: e.target.value },
-                                      isLoaded: false
+                                      columnFilters: { ...prev.columnFilters, [col.id]: e.target.value }
                                   }))}
                                   className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                 />
@@ -635,8 +639,7 @@ export const Analytics = () => {
                                          delete newFilters[col.id];
                                          setAnalyticsState(prev => ({ 
                                              ...prev, 
-                                             columnFilters: newFilters,
-                                             isLoaded: false
+                                             columnFilters: newFilters
                                          }));
                                      }}
                                      className="mt-2 text-xs text-red-600 hover:text-red-700 hover:underline w-full text-right"
