@@ -4,6 +4,7 @@ import { queryService } from "../services/api";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import { useGlobalState } from "../context/GlobalStateContext";
+import { WorkflowButton } from "../components/WorkflowButton";
 
 export const Home = () => {
     const { homeState, setHomeState } = useGlobalState();
@@ -47,9 +48,43 @@ export const Home = () => {
       });
   };
 
+  /* AI Workflow Definition */
+  const grantWorkflowChart = `
+graph TD
+    User([User]) -->|Natural Language Query| Agent{AI Agent}
+    
+    subgraph "Phase 1: Retrieval & Expansion"
+    Agent -->|Enhance & Parse| LLM1[LLM: Query Master]
+    LLM1 -->|Cypher Query| KG[(Neo4j Graph)]
+    KG -->|Graph Data| Results[Raw Grant Data]
+    end
+    
+    subgraph "Phase 2: Deep Research"
+    Results -->|Analyze Grants| LLM2[LLM: Insight Engine]
+    LLM2 -.->|Identify Top Grants| DeepAgent[Deep Research Agent]
+    DeepAgent -->|Search Query| Tools[Google Search / OpenAlex]
+    Tools -->|Papers & Citations| Validator{Validation}
+    Validator -->|Verified Matches| EnrichedData[Enriched Context]
+    DeepAgent --x|Unrelated| Discard[Discard]
+    end
+    
+    subgraph "Phase 3: Synthesis"
+    EnrichedData -->|Combine| Summarizer[LLM: Final Synthesis]
+    Summarizer -->|Markdown Report| UI[Dashboard Output]
+    end
+    
+    style Agent fill:#4f46e5,stroke:#312e81,color:#fff
+    style KG fill:#0ea5e9,stroke:#0369a1,color:#fff
+    style DeepAgent fill:#db2777,stroke:#9d174d,color:#fff
+    style LLM1 fill:#8b5cf6,color:#fff
+    style LLM2 fill:#8b5cf6,color:#fff
+    style Summarizer fill:#8b5cf6,color:#fff
+`;
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="text-center space-y-2">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <WorkflowButton chart={grantWorkflowChart} title="Grant Explorer AI Workflow" />
+      <div className="text-center space-y-4 pt-8">
         <h1 className="text-3xl font-bold text-gray-900">
           Research Grant Explorer
         </h1>
