@@ -819,74 +819,152 @@ Cypher Query:"""
         else:
             return "MATCH (g:Grant) RETURN g ORDER BY g.start_year DESC LIMIT 20"
             
-    def _get_related_papers_html(self, title: str, grant_id: str = None, funder: str = None) -> str:
-        """Helper to fetch related papers from OpenAlex using Targeted Prompt (ID + Funder) or Title"""
+    def _get_related_papers_html(self, title: str, grant_id: str = None, funder: str = None, pi_name: str = None, start_year: int = None) -> str:
+        """Helper to fetch related papers from OpenAlex using Targeted Prompt (ID + Funder + PI) or Title, filtering by start_year"""
         try:
             import requests
             import urllib.parse
             
-            logger.info(f"Searching OpenAlex. Title: {title}, ID: {grant_id}, Funder: {funder}")
+            logger.info(f"Searching OpenAlex. Title: {title}, ID: {grant_id}, Funder: {funder}, PI: {pi_name}, Start Year: {start_year}")
             
             p_results = []
             
-            # 1. Targeted Search: Grant ID + Funder (Most Precise / "Deep Research" prompt)
-            if grant_id and funder:
-                # OpenAlex fulltext search is powerful. "NHMRC APP1169076" 
-                query_str = f'"{funder}" "{grant_id}"'
-                safe_query = urllib.parse.quote(query_str)
-                url = f"https://api.openalex.org/works?search={safe_query}&per-page=3"
-                try:
-                    resp = requests.get(url, timeout=4)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        results = data.get('results', [])
-                        if results:
-                            p_results = results
-                            logger.info(f"Found {len(results)} papers via Targeted Search ({query_str})")
-                except Exception as e:
-                    logger.warning(f"Targeted search failed: {e}")
-
-            # 2. Fallback: Title Search
-            if not p_results and title:
-                safe_title = urllib.parse.quote(title)
-                url = f"https://api.openalex.org/works?search={safe_title}&per-page=3"
+            # 1. Targeted Search: Grant ID + PI (Extremely Precise)
+            if grant_id:
+                # Clean ID: OpenAlex IDs usually don't have spaces, but might have prefixes.
+                # User's ID might be "APP12345" or "12345".
+                clean_id = grant_id.strip()
                 
-                # Short timeout to not block UI too long
+                # Strategy A: Strict Filter on Award ID + Author Name
+                if pi_name:
+                    try:
+                        # filter=grants.award_id:X,authorships.author.display_name:Y
+                        # Note: OpenAlex filters use comma for AND.
+                        pi_term = f"authorships.author.display_name:{pi_name}"
+                        grant_term = f"grants.award_id:{clean_id}"
+                        url = f"https://api.openalex.org/works?filter={grant_term},{pi_term}&per-page=3"
+                        resp = requests.get(url, timeout=4)
+                        if resp.status_code == 200:
+                            p_results = resp.json().get('results', [])
+                            if p_results:
+                                logger.info(f"Found {len(p_results)} papers via Strict Filter (ID+PI)")
+                    except Exception as e:
+                        logger.warning(f"Strict filter failed: {e}")
+
+                # Strategy B: Strict Filter on Award ID only (if A failed or no PI)
+                if not p_results:
+                    try:
+                        grant_term = f"grants.award_id:{clean_id}"
+                        url = f"https://api.openalex.org/works?filter={grant_term}&per-page=3"
+                        resp = requests.get(url, timeout=4)
+                        if resp.status_code == 200:
+                            p_results = resp.json().get('results', [])
+                            if p_results:
+                                logger.info(f"Found {len(p_results)} papers via Grant ID Filter")
+                    except:
+                        pass
+                
+                # Strategy C: Full Text Search for Grant ID (Fallback)
+                if not p_results:
+                     try:
+                        # Quote the ID to ensure it's treated as a phrase token if it has spaces/hyphens
+                        query = f'"{clean_id}"'
+                        if funder:
+                             # Adding funder name helps disambiguate short IDs
+                             query += f' {funder}'
+                        
+                        safe_query = urllib.parse.quote(query)
+                        url = f"https://api.openalex.org/works?search={safe_query}&per-page=3"
+                        resp = requests.get(url, timeout=4)
+                        if resp.status_code == 200:
+                            p_results = resp.json().get('results', [])
+                            if p_results:
+                                logger.info(f"Found {len(p_results)} papers via Grant ID Search")
+                     except:
+                        pass
+
+            # 2. Fallback: Title Search (ONLY if Grant ID was not provided/found)
+            # If we have a Grant ID, strict search rules apply: only return papers linked to that ID.
+            if not grant_id and not p_results and title:
                 try:
+                    if pi_name:
+                        # Use Filter: Title Search AND Author Name
+                        # This avoids finding papers with same title but different authors
+                        safe_title = title.replace(",", " ") # Remove commas for filter syntax
+                        url = f"https://api.openalex.org/works?filter=title.search:{safe_title},authorships.author.display_name:{pi_name}&per-page=3"
+                    else:
+                        safe_title = urllib.parse.quote(title)
+                        url = f"https://api.openalex.org/works?search={safe_title}&per-page=3"
+                        
                     resp = requests.get(url, timeout=3)
                     if resp.status_code == 200:
                         data = resp.json()
-                        if not p_results: # Don't overwrite if found
+                        if not p_results: 
                              p_results = data.get('results', [])
                 except:
                    pass
                 
-            # 3. Key Term Fallback 
-            if not p_results and title:
-                # Use long words (>4 chars) as keywords
-                words = [w for w in title.split() if len(w) > 4]
-                if words:
-                    safe_terms = urllib.parse.quote(" ".join(words[:5]))
-                    url = f"https://api.openalex.org/works?search={safe_terms}&per-page=3"
-                    try:
-                        resp = requests.get(url, timeout=3)
-                        if resp.status_code == 200:
-                            p_results = resp.json().get('results', [])
-                    except:
-                        pass
+            if p_results:
+                # 1. Filter by PI Name (if provided)
+                if pi_name:
+                    # Clean PI name for matching (e.g. "Glenn F. King" -> "King")
+                    # We'll use a loose surname match or exact full string check
+                    # Strategy: Split PI name, match last name against author display names
+                    pi_parts = pi_name.replace(".", "").split()
+                    pi_surname = pi_parts[-1].lower() if pi_parts else ""
+                    
+                    if pi_surname:
+                        pi_filtered = []
+                        for work in p_results:
+                            authors = work.get('authorships', [])
+                            # Check if ANY author matches the PI surname
+                            is_match = False
+                            for auth_entry in authors:
+                                author_name = auth_entry.get('author', {}).get('display_name', '').lower()
+                                if pi_surname in author_name:
+                                    # Optional: Check first initial if available
+                                    is_match = True
+                                    break
+                            
+                            if is_match:
+                                pi_filtered.append(work)
+                        
+                        if not pi_filtered and p_results:
+                             logger.info(f"Filtered out {len(p_results)} papers due to PI mismatch (PI: {pi_name})")
+                        
+                        p_results = pi_filtered
+
+                # 2. Filter by publication year if start_year is provided
+                if start_year:
+                    # Allow papers from the same year or later. 
+                    filtered_results = []
+                    for work in p_results:
+                         pub_year = work.get('publication_year')
+                         if pub_year and pub_year >= start_year:
+                             filtered_results.append(work)
+                    
+                    if not filtered_results and p_results:
+                        logger.info(f"Filtered out {len(p_results)} papers due to invalid year (Start: {start_year})")
+                    
+                    p_results = filtered_results
 
             if p_results:
-                label = "Related Research Papers (Targeted Grant Search)" if (grant_id and funder) else "Related Research Papers (OpenAlex)"
+                label = "Research Output (Directly Linked to Grant)" if grant_id else "Related Research Papers (Title Match)"
                 html = f"<br><br><details class='bg-blue-50 p-2 rounded border border-blue-100 text-sm mt-1'><summary class='cursor-pointer font-semibold text-blue-700 hover:text-blue-900'>📚 {label}</summary><ul class='list-disc pl-5 mt-2 space-y-1'>"
                 for work in p_results:
                     w_title = work.get('title') or "Untitled Work"
                     # Prefer DOI link, then ID
                     link = work.get('doi') or work.get('id') or "#"
-                    html += f"<li><a href='{link}' target='_blank' class='text-blue-600 hover:underline'>{w_title}</a></li>"
+                    
+                    # Add publication year if available
+                    year = work.get('publication_year', '')
+                    year_str = f" ({year})" if year else ""
+                    
+                    html += f"<li><a href='{link}' target='_blank' class='text-blue-600 hover:underline'>{w_title}</a>{year_str}</li>"
                 html += "</ul></details>"
                 return html
             else:
-                 return "<br><span class='text-xs text-gray-400 italic mt-1 block ml-4'>— No related public papers found. —</span>"
+                 return "<br><span class='text-xs text-gray-400 italic mt-1 block ml-4'>— No directly derived papers found. —</span>"
         except Exception as e:
             logger.error(f"OpenAlex Error: {str(e)}")
             return ""
@@ -1056,30 +1134,48 @@ IMPORTANT:
                 new_lines = []
                 for line in lines:
                     new_lines.append(line)
-                    # Match pattern: "1. **Grant Title**" or "1. ** Grant Title **"
-                    # Capture title content inside **...**
-                    match = re.search(r'^\d+\.\s+\*\*(.+?)\*\*', line)
+                    # Match pattern: "1. **Grant Title**" or "1. Grant Title ("
+                    # Capture title content. Handles bolding optional.
+                    match = re.search(r'^\d+\.\s*(?:\*\*)?\s*(.*?)\s*(?:\*\*)?(?:\s*\(|\s*:| - |$)', line)
                     if match:
                         title = match.group(1).strip()
                         
-                        # Extract ID and Funder if present in parentheses or line
-                        # Look for content like (ID: APP123, Funder: NHMRC, ...)
+                        # Try to find the matching grant object in `results` to get precise ID and PI
+                        matched_grant = None
+                        for g in results:
+                            # Loose title matching
+                            g_title = g.get('title', '')
+                            # Check if fuzzy match (one contains the other)
+                            if g_title and (g_title.lower() in title.lower() or title.lower() in g_title.lower()):
+                                matched_grant = g
+                                break
+                        
                         grant_id = None
                         funder = None
+                        pi_name = None
+                        start_year = None
                         
-                        # Search for metadata structure
-                        id_match = re.search(r'ID:\s*([^,)]+)', line)
-                        funder_match = re.search(r'Funder:\s*([^,)]+)', line)
-                        
-                        if id_match:
-                            grant_id = id_match.group(1).strip()
-                        if funder_match:
-                            funder = funder_match.group(1).strip()
-                            
-                        # Only fetch if it looks like a real title (length check)
+                        if matched_grant:
+                            grant_id = matched_grant.get('application_id')
+                            funder = matched_grant.get('funding_body')
+                            pi_name = matched_grant.get('pi_name')
+                            try:
+                                start_year = int(matched_grant.get('start_year'))
+                            except:
+                                pass
+                        else:
+                            # Fallback to Regex extraction
+                            id_match = re.search(r'ID:\s*([^,)]+)', line)
+                            funder_match = re.search(r'Funder:\s*([^,)]+)', line)
+                            year_match = re.search(r'Year:\s*(\d{4})', line)
+                            if id_match: grant_id = id_match.group(1).strip()
+                            if funder_match: funder = funder_match.group(1).strip()
+                            if year_match: start_year = int(year_match.group(1))
+
                         if len(title) > 5:
-                            papers_html = self._get_related_papers_html(title, grant_id, funder)
+                            papers_html = self._get_related_papers_html(title, grant_id, funder, pi_name, start_year)
                             if papers_html:
+                                # Insert after the line
                                 new_lines.append(papers_html)
                 
                 summary = '\n'.join(new_lines)
@@ -1140,7 +1236,10 @@ IMPORTANT:
                                 'amount': amount,
                                 'researcher': str(researcher).strip(),
                                 'institution': str(institution).strip(),
-                                'year': str(year).strip()
+                                'year': str(year).strip(),
+                                'application_id': result.get('application_id'), # Add application_id
+                                'funding_body': result.get('funding_body'), # Add funding_body
+                                'pi_name': result.get('pi_name') # Add pi_name
                             })
                     
                     # Collect summary statistics
@@ -1274,8 +1373,14 @@ IMPORTANT:
                     # Use fallback data directly
                     gid = str(grant.get('application_id', ''))
                     funder_name = str(grant.get('funding_body', ''))
+                    pi_name = str(grant.get('pi_name', ''))
+                    start_year = None
+                    try:
+                        start_year = int(grant.get('start_year'))
+                    except:
+                        pass
                     
-                    papers_html = self._get_related_papers_html(grant['title'], gid, funder_name)
+                    papers_html = self._get_related_papers_html(grant['title'], gid, funder_name, pi_name, start_year)
                     if papers_html:
                          grant_info += papers_html
                     
