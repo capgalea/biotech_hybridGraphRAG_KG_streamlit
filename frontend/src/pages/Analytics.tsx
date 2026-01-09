@@ -13,54 +13,53 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { analyticsService } from "../services/api";
-import { Filter, X, Settings, ChevronUp, ChevronDown, Check, Eye, EyeOff, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Filter, X, Settings, ChevronUp, ChevronDown, Check, Eye, EyeOff, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw } from "lucide-react";
+import { useGlobalState } from "../context/GlobalStateContext";
 
 export const Analytics = () => {
-  const [stats, setStats] = useState<any>(null);
-  const [activeTrendTab, setActiveTrendTab] = useState<"total" | "median">("total");
-  const [filterOptions, setFilterOptions] = useState<any>(null);
-  const [filters, setFilters] = useState<any>({
-    institution: "",
-    start_year: "",
-    grant_type: "",
-    broad_research_area: "",
-    field_of_research: "",
-    funding_body: ""
-  });
+  const { analyticsState, setAnalyticsState } = useGlobalState();
+  const { 
+      stats, activeTrendTab, filterOptions, filters, 
+      fundingData, trendsData, grants, 
+      showColumnConfig, searchTerm, debouncedSearch, sortConfig, 
+      columns, columnFilters, debouncedColumnFilters, activeFilterCol, isLoaded
+  } = analyticsState;
 
-  const [fundingData, setFundingData] = useState<any[]>([]);
-  const [trendsData, setTrendsData] = useState<any[]>([]);
-  const [grants, setGrants] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showColumnConfig, setShowColumnConfig] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [sortConfig, setSortConfig] = useState({ key: "start_year", direction: "DESC" });
   const [hoveredCell, setHoveredCell] = useState<{ content: string; x: number; y: number } | null>(null);
 
-  const [columns, setColumns] = useState([
-    { id: "title", label: "Grant Title", visible: true, width: 250 },
-    { id: "pi_name", label: "Researcher Name", visible: true, width: 180 },
-    { id: "institution_name", label: "Institution Name", visible: true, width: 180 },
-    { id: "grant_status", label: "Status", visible: true, width: 120 },
-    { id: "amount", label: "Amount", visible: true, width: 120 },
-    { id: "description", label: "Description", visible: false, width: 300 },
-    { id: "start_year", label: "Start Year", visible: true, width: 100 },
-    { id: "grant_type", label: "Grant Type", visible: false, width: 150 },
-    { id: "funding_body", label: "Funding Body", visible: true, width: 120 },
-    { id: "field_of_research", label: "Field of Research", visible: false, width: 200 },
-    { id: "application_id", label: "Application ID", visible: true, width: 130 },
-  ]);
+  // Helper to update specific fields
+  const updateState = (updates: Partial<typeof analyticsState>) => {
+      setAnalyticsState(prev => ({ ...prev, ...updates }));
+  };
 
   // Handle search debouncing
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearch(searchTerm);
+      updateState({ debouncedSearch: searchTerm });
     }, 500);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const fetchData = useCallback(async () => {
+  // Handle column filter debouncing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      updateState({ debouncedColumnFilters: columnFilters });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [columnFilters]);
+
+  const fetchData = useCallback(async (force = false) => {
+    // Prevent refetch if loaded and not forced (and no active search changes)
+    // Actually, if debouncedSearch changes, we MUST refetch.
+    // The dependency array handles the "when" to run.
+    // But on mount, we want to skip if already loaded.
+    // BUT since debouncedSearch, filters etc are part of state, changing them triggers this.
+    // SO: We need to know if this is the "initial mount" or a "state switch".
+    
+    // Simplest logic: If loading, ignore. 
+    if (loading) return; 
+
     setLoading(true);
     try {
       // Clean filters (remove empty strings)
@@ -71,6 +70,11 @@ export const Analytics = () => {
       if (debouncedSearch) {
         activeFilters.search = debouncedSearch;
       }
+      
+      // Add column-specific filters
+      Object.entries(debouncedColumnFilters).forEach(([key, value]) => {
+          if(value) activeFilters[key] = value;
+      });
 
       // Determine year range from filterOptions if available, otherwise use defaults
       let minYear = 2005;
@@ -92,96 +96,125 @@ export const Analytics = () => {
         analyticsService.getTrends(minYear, maxYear, activeFilters),
         analyticsService.getGrants(50, 0, activeFilters, debouncedSearch, sortConfig.key, sortConfig.direction)
       ]);
-      setStats(statsRes.data);
       
-      const chartData = fundingRes.data.map((item: any) => ({
+      const newFundingData = fundingRes.data.map((item: any) => ({
         name: item.institution,
         funding: item.total_funding / 1e6 // Convert to millions for better display
       }));
-      setFundingData(chartData);
 
-      const trends = trendsRes.data.map((item: any) => ({
+      const newTrends = trendsRes.data.map((item: any) => ({
         year: item.year,
         projects: item.grant_count,
         funding: item.total_funding / 1e6, // Convert to millions
         medianFunding: item.median_funding / 1e6,
         returnRate: 65 + (Math.sin(item.year) * 10) + (Math.random() * 5)
       }));
-      setTrendsData(trends);
-      setGrants(grantsRes.data);
+
+      updateState({
+          stats: statsRes.data,
+          fundingData: newFundingData,
+          trendsData: newTrends,
+          grants: grantsRes.data,
+          isLoaded: true
+      });
+
     } catch (error) {
       console.error("Failed to fetch analytics data", error);
     } finally {
       setLoading(false);
     }
-  }, [filters, filterOptions, debouncedSearch, sortConfig]);
+  }, [filters, filterOptions, debouncedSearch, debouncedColumnFilters, sortConfig]);
 
   useEffect(() => {
-    const loadFilters = async () => {
-      try {
-        const res = await analyticsService.getFilters();
-        setFilterOptions(res.data);
-      } catch (error) {
-        console.error("Failed to fetch filter options", error);
-      }
-    };
-    loadFilters();
-  }, []);
+    // Check if initial load is needed
+    if (!filterOptions) {
+        const loadFilters = async () => {
+          try {
+            const res = await analyticsService.getFilters();
+            updateState({ filterOptions: res.data });
+          } catch (error) {
+            console.error("Failed to fetch filter options", error);
+          }
+        };
+        loadFilters();
+    }
+  }, []); // Only run once on mount
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (!isLoaded) {
+        fetchData();
+    }
+  }, [fetchData, isLoaded]);
 
   const handleFilterChange = (key: string, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
+    setAnalyticsState(prev => ({
+        ...prev,
+        filters: { ...prev.filters, [key]: value },
+        isLoaded: false // Trigger fetch
+    }));
   };
 
   const clearFilters = () => {
-    setFilters({
-      institution: "",
-      start_year: "",
-      grant_type: "",
-      broad_research_area: "",
-      field_of_research: "",
-      funding_body: ""
-    });
-    setSearchTerm("");
+    setAnalyticsState(prev => ({
+        ...prev,
+        filters: {
+          institution: "",
+          start_year: "",
+          grant_type: "",
+          broad_research_area: "",
+          field_of_research: "",
+          funding_body: ""
+        },
+        searchTerm: "",
+        debouncedSearch: "",
+        isLoaded: false
+    }));
   };
 
   const hasActiveFilters = Object.values(filters).some(v => v !== "") || searchTerm !== "";
 
   const toggleColumnVisibility = (id: string) => {
-    setColumns(prev => prev.map(col => 
-      col.id === id ? { ...col, visible: !col.visible } : col
-    ));
+    setAnalyticsState(prev => ({
+        ...prev,
+        columns: prev.columns.map(col => 
+            col.id === id ? { ...col, visible: !col.visible } : col
+        )
+    }));
   };
 
   const moveColumn = (index: number, direction: 'up' | 'down') => {
-    setColumns(prev => {
-      const newCols = [...prev];
+    setAnalyticsState(prev => {
+      const newCols = [...prev.columns];
       const targetIndex = direction === 'up' ? index - 1 : index + 1;
       if (targetIndex >= 0 && targetIndex < newCols.length) {
         [newCols[index], newCols[targetIndex]] = [newCols[targetIndex], newCols[index]];
       }
-      return newCols;
+      return { ...prev, columns: newCols };
     });
   };
 
   const visibleColumns = columns.filter(c => c.visible);
 
   const handleSort = (key: string) => {
-    setSortConfig(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === "ASC" ? "DESC" : "ASC"
+    setAnalyticsState(prev => ({
+        ...prev,
+        sortConfig: {
+           key,
+           direction: prev.sortConfig.key === key && prev.sortConfig.direction === "ASC" ? "DESC" : "ASC"
+        },
+        isLoaded: false
     }));
   };
 
   const handleResize = (id: string, startX: number, startWidth: number) => {
     const onMouseMove = (e: MouseEvent) => {
       const delta = e.clientX - startX;
-      setColumns(prev => prev.map(col => 
-        col.id === id ? { ...col, width: Math.max(50, startWidth + delta) } : col
-      ));
+      setAnalyticsState(prev => ({
+          ...prev,
+          columns: prev.columns.map(col => 
+            col.id === id ? { ...col, width: Math.max(50, startWidth + delta) } : col
+          )
+      }));
     };
     
     const onMouseUp = () => {
@@ -199,15 +232,27 @@ export const Analytics = () => {
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
-        {hasActiveFilters && (
-          <button
-            onClick={clearFilters}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-          >
-            <X size={16} />
-            Clear Filters
-          </button>
-        )}
+        
+        <div className="flex items-center gap-2">
+            <button
+                onClick={() => updateState({ isLoaded: false })}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                title="Refresh Data"
+            >
+                <RotateCcw size={16} />
+                Refresh Data
+            </button>
+            
+            {hasActiveFilters && (
+            <button
+                onClick={clearFilters}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+            >
+                <X size={16} />
+                Clear Filters
+            </button>
+            )}
+        </div>
       </div>
 
       {/* Filters Section */}
@@ -222,13 +267,13 @@ export const Analytics = () => {
            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">
               Search Grants
            </label>
-           <div className="relative">
+            <div className="relative">
              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
              <input
                type="text"
                placeholder="Refine by keyword (e.g., 'cancer', 'genomics'), title, researcher, or ID..."
                value={searchTerm}
-               onChange={(e) => setSearchTerm(e.target.value)}
+               onChange={(e) => updateState({ searchTerm: e.target.value, isLoaded: false })} // Trigger reload on type
                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
              />
            </div>
@@ -396,14 +441,14 @@ export const Analytics = () => {
         {/* Tabbed Chart Container */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-semibold">
+            <h3 className="text-lg font-bold text-gray-900">
               {activeTrendTab === "total" 
                 ? "Projects and Total Funding" 
                 : "Median Funding and Return Rate"}
             </h3>
             <div className="flex bg-gray-100 p-1 rounded-lg">
               <button
-                onClick={() => setActiveTrendTab("total")}
+                onClick={() => updateState({ activeTrendTab: "total" })}
                 className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
                   activeTrendTab === "total" 
                     ? "bg-white text-blue-600 shadow-sm" 
@@ -413,7 +458,7 @@ export const Analytics = () => {
                 Total
               </button>
               <button
-                onClick={() => setActiveTrendTab("median")}
+                onClick={() => updateState({ activeTrendTab: "median" })}
                 className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
                   activeTrendTab === "median" 
                     ? "bg-white text-blue-600 shadow-sm" 
@@ -465,8 +510,22 @@ export const Analytics = () => {
             <h3 className="text-lg font-bold text-gray-900">Grant Details</h3>
           </div>
           <div className="flex items-center gap-3 relative">
+            {/* Table Search Input */}
+            <div className="relative group">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={16} />
+              <input 
+                type="text" 
+                placeholder="Search within table..." 
+                value={searchTerm}
+                onChange={(e) => updateState({ searchTerm: e.target.value, isLoaded: false })}
+                className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none w-64 hover:border-blue-300 transition-all shadow-sm"
+              />
+            </div>
+            
+            <div className="h-6 w-px bg-gray-300 mx-2"></div>
+
             <button
-              onClick={() => setShowColumnConfig(!showColumnConfig)}
+              onClick={() => updateState({ showColumnConfig: !showColumnConfig })}
               className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm transition-all"
             >
               <Settings size={16} className={showColumnConfig ? "text-blue-600 animate-spin" : ""} />
@@ -477,7 +536,7 @@ export const Analytics = () => {
               <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-4 animate-in fade-in slide-in-from-top-2">
                 <div className="flex justify-between items-center mb-4">
                   <h4 className="font-bold text-gray-900">Display Columns</h4>
-                  <button onClick={() => setShowColumnConfig(false)} className="text-gray-400 hover:text-gray-600">
+                  <button onClick={() => updateState({ showColumnConfig: false })} className="text-gray-400 hover:text-gray-600">
                     <X size={16} />
                   </button>
                 </div>
@@ -533,7 +592,7 @@ export const Analytics = () => {
                   >
                     <button 
                       onClick={() => handleSort(col.id)}
-                      className="flex items-center gap-1 hover:text-blue-600 transition-colors uppercase"
+                      className="flex items-center gap-1 hover:text-blue-600 transition-colors uppercase flex-1"
                     >
                       {col.label}
                       {sortConfig.key === col.id ? (
@@ -542,6 +601,58 @@ export const Analytics = () => {
                         <ArrowUpDown size={14} className="opacity-30 group-hover:opacity-100" />
                       )}
                     </button>
+                    
+                     {/* Column Filter Trigger */}
+                    <div className="relative ml-2" onClick={(e) => e.stopPropagation()}>
+                        <button 
+                           onClick={() => updateState({ activeFilterCol: activeFilterCol === col.id ? null : col.id })}
+                           className={`p-1 rounded transition-colors ${columnFilters[col.id] ? "text-blue-600 bg-blue-50" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"} ${activeFilterCol === col.id ? "bg-gray-200" : ""}`}
+                           title="Filter Column"
+                        >
+                           <Filter size={14} fill={columnFilters[col.id] ? "currentColor" : "none"} />
+                        </button>
+                        
+                        {/* Filter Popup */}
+                        {activeFilterCol === col.id && (
+                             <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-50 p-3 animate-in fade-in zoom-in-95 cursor-default">
+                                <div className="text-xs font-semibold text-gray-500 mb-2 uppercase">Filter by {col.label}</div>
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  placeholder={`Search ${col.label}...`}
+                                  value={columnFilters[col.id] || ""}
+                                  onChange={(e) => setAnalyticsState(prev => ({ 
+                                      ...prev, 
+                                      columnFilters: { ...prev.columnFilters, [col.id]: e.target.value },
+                                      isLoaded: false
+                                  }))}
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                />
+                                {columnFilters[col.id] && (
+                                   <button 
+                                     onClick={() => {
+                                         const newFilters = {...columnFilters};
+                                         delete newFilters[col.id];
+                                         setAnalyticsState(prev => ({ 
+                                             ...prev, 
+                                             columnFilters: newFilters,
+                                             isLoaded: false
+                                         }));
+                                     }}
+                                     className="mt-2 text-xs text-red-600 hover:text-red-700 hover:underline w-full text-right"
+                                   >
+                                     Clear Filter
+                                   </button>
+                                )}
+                             </div>
+                        )}
+                        
+                        {/* Overlay to close when clicking outside (simple version) */}
+                         {activeFilterCol === col.id && (
+                             <div className="fixed inset-0 z-40 bg-transparent" onClick={() => updateState({ activeFilterCol: null })} />
+                        )}
+                    </div>
+
                     {/* Resize Handle */}
                     <div
                       onMouseDown={(e) => handleResize(col.id, e.clientX, col.width || 100)}
