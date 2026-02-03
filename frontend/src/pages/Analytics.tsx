@@ -13,8 +13,9 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { analyticsService } from "../services/api";
-import { Filter, X, Settings, ChevronUp, ChevronDown, Check, Eye, EyeOff, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw } from "lucide-react";
+import { Filter, X, Settings, ChevronUp, ChevronDown, Check, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, Map } from "lucide-react";
 import { useGlobalState } from "../context/GlobalStateContext";
+import MapComponent from "../components/MapComponent";
 
 export const Analytics = () => {
   const { analyticsState, setAnalyticsState } = useGlobalState();
@@ -26,6 +27,7 @@ export const Analytics = () => {
   } = analyticsState;
 
   const [loading, setLoading] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const [hoveredCell, setHoveredCell] = useState<{ content: string; x: number; y: number } | null>(null);
 
   // Helper to update specific fields
@@ -51,7 +53,7 @@ export const Analytics = () => {
     return () => clearTimeout(timer);
   }, [columnFilters]);
 
-  const fetchData = useCallback(async (force = false) => {
+  const fetchData = useCallback(async () => {
     // Prevent refetch if loaded and not forced (and no active search changes)
     // Actually, if debouncedSearch changes, we MUST refetch.
     // The dependency array handles the "when" to run.
@@ -61,6 +63,7 @@ export const Analytics = () => {
     
     // Simplest logic: If loading, ignore. 
     if (loading) return; 
+ 
 
     setLoading(true);
     try {
@@ -257,8 +260,32 @@ export const Analytics = () => {
                 Clear All Filters
             </button>
             )}
+            
+            <button
+                onClick={() => setShowMap(!showMap)}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  showMap 
+                    ? "text-white bg-blue-600 hover:bg-blue-700 shadow-md" 
+                    : "text-blue-600 bg-white border border-blue-200 hover:bg-blue-50"
+                }`}
+                title="Toggle Interactive Map"
+            >
+                <Map size={16} />
+                {showMap ? "Hide Map" : "Show Map"}
+            </button>
         </div>
       </div>
+
+      {/* Interactive Map Section */}
+      {showMap && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-in fade-in slide-in-from-top-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Map size={20} className="text-blue-600"/>
+                Collaborative Network Map
+            </h3>
+            <MapComponent filters={{ ...filters, ...debouncedColumnFilters, search: debouncedSearch }} />
+        </div>
+      )}
 
       {/* Filters Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">

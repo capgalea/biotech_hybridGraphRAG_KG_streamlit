@@ -442,6 +442,68 @@ class Neo4jHandler:
         
         return self.execute_cypher(cypher, {'name': institution_name})
     
+    def get_institution_map_data(self, filters: Optional[Dict[str, Any]] = None) -> List[Dict]:
+        """
+        Get aggregated stats for all institutions for map visualization.
+        Returns: list of dicts with name, funding, counts, etc.
+        """
+        where_clause = self._build_filter_clause(filters)
+        where_str = f"AND {where_clause}" if where_clause else ""
+        
+        # We need to filter the Grants (g) first
+        cypher = f"""
+        MATCH (g:Grant)-[:HOSTED_BY]->(i:Institution)
+        WHERE g.amount IS NOT NULL AND g.amount > 0 {where_str}
+        
+        WITH i, g
+        ORDER BY g.amount DESC
+        
+        WITH i, 
+             count(g) as project_count, 
+             sum(g.amount) as total_funding,
+             collect(g.funding_body)[0..50] as raw_funders
+             
+        MATCH (i)<-[:HOSTED_BY]-(g2:Grant)<-[:PRINCIPAL_INVESTIGATOR|INVESTIGATOR]-(r:Researcher)
+        
+        // Apply filters to the second match too? Usually map stats show "filtered view"
+        // But researcher count might be tricky if we don't filter g2.
+        // For consistency, let's filter g2 as well so stats match the dashboard.
+        WHERE g2.amount IS NOT NULL {where_str.replace('g.', 'g2.')}
+        
+        WITH i, project_count, total_funding, raw_funders, count(DISTINCT r) as researcher_count
+        
+        RETURN i.name as institution_name,
+               total_funding,
+               project_count,
+               researcher_count,
+               raw_funders
+        ORDER BY total_funding DESC
+        LIMIT 100
+        """
+        params = (filters or {}).copy()
+        try:
+            results = self.execute_cypher(cypher, params)
+        except Exception as e:
+            logger.error(f"Map data query failed: {e}")
+            return []
+        
+        # Post-process to deduplicate funders
+        for record in results:
+            seen = set()
+            unique_funders = []
+            for funder in record.get('raw_funders', []):
+                if funder and funder not in seen:
+                    unique_funders.append(funder)
+                    seen.add(funder)
+                    if len(unique_funders) >= 3:
+                        break
+            record['top_funders'] = unique_funders
+            # Remove raw field
+            if 'raw_funders' in record:
+                del record['raw_funders']
+                
+        return results
+
     def get_grants_by_research_area(self, area_name: str) -> List[Dict]:
         """Get all grants in a research area"""
         cypher = """

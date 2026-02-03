@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List, Dict
 from app.utils.neo4j_handler import Neo4jHandler
 from app.config import settings
+from app.utils.geocoding import get_institution_coordinates
 
 router = APIRouter()
 
@@ -34,7 +35,7 @@ async def get_stats(
     description: Optional[str] = None,
     institution_name: Optional[str] = None,
     grant_status: Optional[str] = None,
-    application_id: Optional[str] = None
+    application_id: Optional[str] = None,
 ):
     try:
         handler = get_neo4j_handler()
@@ -86,7 +87,7 @@ async def get_top_institutions(
     description: Optional[str] = None,
     institution_name: Optional[str] = None,
     grant_status: Optional[str] = None,
-    application_id: Optional[str] = None
+    application_id: Optional[str] = None,
 ):
     try:
         handler = get_neo4j_handler()
@@ -127,7 +128,7 @@ async def get_funding_trends(
     description: Optional[str] = None,
     institution_name: Optional[str] = None,
     grant_status: Optional[str] = None,
-    application_id: Optional[str] = None
+    application_id: Optional[str] = None,
 ):
     try:
         handler = get_neo4j_handler()
@@ -159,6 +160,55 @@ async def get_filters():
         handler = get_neo4j_handler()
         options = handler.get_filter_options()
         return options
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/map")
+async def get_map_data(
+    start_year: Optional[int] = None,
+    end_year: Optional[int] = None,
+    grant_type: Optional[str] = None,
+    funding_body: Optional[str] = None,
+    institution: Optional[str] = None,
+    broad_research_area: Optional[str] = None,
+    search: Optional[str] = None
+):
+    """
+    Get aggregated data for interactive map.
+    Returns list of institutions with stats and coordinates.
+    """
+    try:
+        handler = get_neo4j_handler()
+        
+        filters = {
+            "start_year": start_year,
+            "end_year": end_year,
+            "grant_type": grant_type,
+            "funding_body": funding_body,
+            "institution": institution,
+            "broad_research_area": broad_research_area,
+            "search": search
+        }
+        # Remove None values
+        filters = {k: v for k, v in filters.items() if v is not None}
+        
+        data = handler.get_institution_map_data(filters)
+        
+        # Enrich with coordinates
+        enriched_data = []
+        for item in data:
+            name = item.get("institution_name")
+            coords = get_institution_coordinates(name)
+            if coords:
+                item["latitude"] = coords[0]
+                item["longitude"] = coords[1]
+                enriched_data.append(item)
+            else:
+                # Optional: Logging missing coords for debug
+                # print(f"Missing coords for: {name}")
+                pass
+                
+        return enriched_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

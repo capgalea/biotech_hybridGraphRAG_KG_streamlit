@@ -7,7 +7,12 @@ app = FastAPI(title="Biotech GraphRAG API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for local development
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,3 +31,10 @@ async def test():
 @app.get("/")
 async def root():
     return {"message": "Biotech GraphRAG API is running"}
+
+# DEBUG PRINT
+print("DEBUG: MAIN.PY LOADED")
+for route in app.routes:
+    # print(f"DEBUG REGISTERED ROUTE: {route.path}")
+    pass
+
