@@ -285,32 +285,64 @@ class Neo4jHandler:
             "funding_body": "coalesce(g.funding_body, '')",
             "application_id": "coalesce(g.application_id, '')",
             "pi_name": "coalesce(pi.name, '')",
-            "institution_name": "coalesce(i.name, '')"
+            "institution_name": "coalesce(i.name, '')",
+            "grant_status": "coalesce(g.grant_status, '')",
+            "grant_type": "coalesce(g.grant_type, '')",
+            "field_of_research": "coalesce(g.field_of_research, '')",
+            "broad_research_area": "coalesce(g.broad_research_area, '')",
+            "description": "coalesce(g.description, '')"
         }
         sort_field = allowed_sorts.get(sort_by, "g.start_year")
         sort_order = "DESC" if order.upper() == "DESC" else "ASC"
         
-        cypher = f"""
-        MATCH (g:Grant)
-        OPTIONAL MATCH (g)<-[:PRINCIPAL_INVESTIGATOR]-(pi:Researcher)
-        OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
-        WITH g, pi, i
-        {where_str}
-        RETURN g.title as title,
-               pi.name as pi_name,
-               i.name as institution_name,
-               g.grant_status as grant_status,
-               g.amount as amount,
-               g.description as description,
-               g.start_year as start_year,
-               g.grant_type as grant_type,
-               g.funding_body as funding_body,
-               g.field_of_research as field_of_research,
-               g.application_id as application_id
-        ORDER BY {sort_field} {sort_order}
-        SKIP $skip
-        LIMIT $limit
-        """
+        # Optimization: Move OPTIONAL MATCH after filtering IF not sorting by related entity
+        sort_requires_rel = sort_by in ["pi_name", "institution_name"]
+        
+        if not sort_requires_rel:
+            cypher = f"""
+            MATCH (g:Grant)
+            {where_str}
+            WITH g
+            ORDER BY {sort_field} {sort_order}
+            SKIP $skip
+            LIMIT $limit
+            OPTIONAL MATCH (g)<-[:PRINCIPAL_INVESTIGATOR]-(pi:Researcher)
+            OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
+            RETURN g.title as title,
+                   pi.name as pi_name,
+                   i.name as institution_name,
+                   g.grant_status as grant_status,
+                   g.amount as amount,
+                   g.description as description,
+                   g.start_year as start_year,
+                   g.grant_type as grant_type,
+                   g.funding_body as funding_body,
+                   g.field_of_research as field_of_research,
+                   g.application_id as application_id
+            """
+        else:
+            # Fallback to slower query if sorting by PI/Institution
+            cypher = f"""
+            MATCH (g:Grant)
+            OPTIONAL MATCH (g)<-[:PRINCIPAL_INVESTIGATOR]-(pi:Researcher)
+            OPTIONAL MATCH (g)-[:HOSTED_BY]->(i:Institution)
+            WITH g, pi, i
+            {where_str}
+            RETURN g.title as title,
+                   pi.name as pi_name,
+                   i.name as institution_name,
+                   g.grant_status as grant_status,
+                   g.amount as amount,
+                   g.description as description,
+                   g.start_year as start_year,
+                   g.grant_type as grant_type,
+                   g.funding_body as funding_body,
+                   g.field_of_research as field_of_research,
+                   g.application_id as application_id
+            ORDER BY {sort_field} {sort_order}
+            SKIP $skip
+            LIMIT $limit
+            """
         
         params = local_filters.copy()
         params.update({'limit': limit, 'skip': skip, 'search': search})
