@@ -20,7 +20,6 @@ def get_neo4j_handler():
     return _handler
 
 @router.get("/stats")
-@router.get("/stats")
 async def get_stats(
     institution: Optional[str] = None,
     start_year: Optional[int] = None,
@@ -70,7 +69,6 @@ async def get_schema():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/institutions")
 @router.get("/institutions")
 async def get_top_institutions(
     limit: int = 10,
@@ -134,8 +132,6 @@ async def get_funding_trends(
         handler = get_neo4j_handler()
         filters = {
             "institution": institution,
-            # Trend endpoint typically uses a range, but might filter by exact start year too?
-            # It uses start_year_min/max primarily. 
             "grant_type": grant_type,
             "broad_research_area": broad_research_area,
             "field_of_research": field_of_research,
@@ -213,7 +209,6 @@ async def get_map_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/grants")
-@router.get("/grants")
 async def get_grants(
     limit: int = 50,
     skip: int = 0,
@@ -224,7 +219,6 @@ async def get_grants(
     field_of_research: Optional[str] = None,
     funding_body: Optional[str] = None,
     search: Optional[str] = None,
-    # New Column Filters
     pi_name: Optional[str] = None,
     title: Optional[str] = None,
     description: Optional[str] = None,
@@ -251,20 +245,6 @@ async def get_grants(
             "application_id": application_id
         }
         filters = {k: v for k, v in filters.items() if v is not None}
-        # Note: get_grants_list takes `filters` and optional `search`. 
-        # But _build_filter_clause handles 'search' if it's in filters.
-        # Let's pass search explicitly if the handler expects it, or add to filters.
-        # Neo4jHandler.get_grants_list(..., filters=filters, search=search, ...) 
-        # If I look at the previous file content (Step 868), line 147:
-        # grants = handler.get_grants_list(limit=limit, skip=skip, filters=filters, search=search, sort_by=sort_by, order=order)
-        # So I will keep passing search explicitly to match signature, but ALSO add it to filters if needed?
-        # Actually, let's check if get_grants_list adds search to filters.
-        # If I assume get_grants_list logic:
-        # def get_grants_list(self, ..., filters=None, search=None, ...):
-        #    if search:
-        #        filters['search'] = search
-        #    ...
-        # So I will just pass it as is.
         grants = handler.get_grants_list(limit=limit, skip=skip, filters=filters, search=search, sort_by=sort_by, order=order)
         return grants
     except Exception as e:

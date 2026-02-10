@@ -10,8 +10,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:5174",
+        "http://localhost:5175",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5175",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -24,17 +26,6 @@ app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"]
 app.include_router(collaboration.router, prefix="/api/collaboration", tags=["collaboration"])
 app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
 
-@app.get("/api/test")
-async def test():
-    return {"status": "ok", "version": "new"}
-
 @app.get("/")
 async def root():
     return {"message": "Biotech GraphRAG API is running"}
-
-# DEBUG PRINT
-print("DEBUG: MAIN.PY LOADED")
-for route in app.routes:
-    # print(f"DEBUG REGISTERED ROUTE: {route.path}")
-    pass
-

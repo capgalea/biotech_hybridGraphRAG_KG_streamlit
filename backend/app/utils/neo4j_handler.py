@@ -114,7 +114,6 @@ class Neo4jHandler:
             return ""
         
         clauses = []
-        clauses = []
         for key, value in filters.items():
             if value is None or value == "":
                 continue

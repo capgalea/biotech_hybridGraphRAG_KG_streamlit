@@ -27,8 +27,12 @@ export const Analytics = () => {
   } = analyticsState;
 
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [hoveredCell, setHoveredCell] = useState<{ content: string; x: number; y: number } | null>(null);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [showSelectedOnly, setShowSelectedOnly] = useState(false);
+  const [pageSize, setPageSize] = useState(20);
 
   // Helper to update specific fields
   const updateState = (updates: Partial<typeof analyticsState>) => {
@@ -99,7 +103,7 @@ export const Analytics = () => {
         analyticsService.getStats(activeFilters),
         analyticsService.getTopInstitutions(5, activeFilters),
         analyticsService.getTrends(minYear, maxYear, activeFilters),
-        analyticsService.getGrants(50, 0, activeFilters, debouncedSearch, sortConfig.key, sortConfig.direction)
+        analyticsService.getGrants(pageSize, 0, activeFilters, debouncedSearch, sortConfig.key, sortConfig.direction)
       ]);
       
       const newFundingData = fundingRes.data.map((item: any) => ({
@@ -128,7 +132,30 @@ export const Analytics = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, filterOptions, debouncedSearch, debouncedColumnFilters, sortConfig]);
+  }, [filters, filterOptions, debouncedSearch, debouncedColumnFilters, sortConfig, pageSize]);
+
+  const loadMore = useCallback(async (newSize: number) => {
+    setLoadingMore(true);
+    try {
+      const activeFilters: Record<string, any> = Object.fromEntries(
+        Object.entries(filters).filter(([_, v]) => v !== "")
+      );
+      if (debouncedSearch) activeFilters.search = debouncedSearch;
+      Object.entries(debouncedColumnFilters).forEach(([key, value]) => {
+        if (value) activeFilters[key] = value;
+      });
+
+      const grantsRes = await analyticsService.getGrants(
+        newSize, 0, activeFilters, debouncedSearch, sortConfig.key, sortConfig.direction
+      );
+      setPageSize(newSize);
+      updateState({ grants: grantsRes.data });
+    } catch (error) {
+      console.error("Failed to load more grants", error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [filters, debouncedSearch, debouncedColumnFilters, sortConfig]);
 
   useEffect(() => {
     // Check if initial load is needed
@@ -235,6 +262,22 @@ export const Analytics = () => {
     document.body.style.cursor = "col-resize";
   };
 
+  const toggleRowSelection = (id: string) => {
+    setSelectedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const displayedGrants = showSelectedOnly 
+     ? grants.filter(g => selectedRows.has(g.application_id)) 
+     : grants;
+
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
@@ -272,6 +315,22 @@ export const Analytics = () => {
             >
                 <Map size={16} />
                 {showMap ? "Hide Map" : "Show Map"}
+            </button>
+
+            <button
+                onClick={() => setShowSelectedOnly(!showSelectedOnly)}
+                disabled={selectedRows.size === 0}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  showSelectedOnly 
+                    ? "bg-blue-600 text-white shadow-md hover:bg-blue-700" 
+                    : selectedRows.size > 0 
+                        ? "bg-white text-blue-600 border border-blue-200 hover:bg-blue-50"
+                        : "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
+                }`}
+                title="Show only selected rows"
+            >
+                {selectedRows.size > 0 && showSelectedOnly ? <Check size={16} /> : null}
+                {showSelectedOnly ? "Show All Rows" : `Show Selected (${selectedRows.size})`}
             </button>
         </div>
       </div>
@@ -616,6 +675,25 @@ export const Analytics = () => {
           <table className="w-full border-collapse">
             <thead className="bg-gray-50/80 border-b border-gray-200">
               <tr>
+                <th className="w-12 px-2 py-3 text-center border-b border-gray-200" onClick={(e) => e.stopPropagation()}>
+                    <input 
+                        type="checkbox"
+                        checked={displayedGrants.length > 0 && selectedRows.size === displayedGrants.length}
+                        onChange={() => {
+                            if (selectedRows.size === displayedGrants.length && displayedGrants.length > 0) {
+                                setSelectedRows(new Set());
+                            } else {
+                                const newSet = new Set(selectedRows);
+                                displayedGrants.forEach(g => {
+                                    if(g.application_id) newSet.add(g.application_id);
+                                });
+                                setSelectedRows(newSet);
+                            }
+                        }}
+                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        title="Select All Visible"
+                    />
+                </th>
                 {visibleColumns.map((col) => (
                   <th
                     key={col.id}
@@ -695,16 +773,24 @@ export const Analytics = () => {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan={visibleColumns.length} className="px-6 py-20 text-center">
+                  <td colSpan={visibleColumns.length + 1} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <Loader2 className="animate-spin text-blue-600" size={32} />
                       <span className="text-gray-500 font-medium">Loading records...</span>
                     </div>
                   </td>
                 </tr>
-              ) : grants.length > 0 ? (
-                grants.map((grant, idx) => (
-                  <tr key={idx} className="hover:bg-blue-50/30 transition-colors group">
+              ) : displayedGrants.length > 0 ? (
+                displayedGrants.map((grant, idx) => (
+                  <tr key={idx} className={`transition-colors group ${selectedRows.has(grant.application_id) ? "bg-blue-50 hover:bg-blue-100" : "hover:bg-blue-50/30"}`}>
+                    <td className="px-2 py-4 text-center align-top" onClick={(e) => e.stopPropagation()}>
+                        <input 
+                            type="checkbox"
+                            checked={selectedRows.has(grant.application_id)}
+                            onChange={() => toggleRowSelection(grant.application_id)}
+                            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer mt-1"
+                        />
+                    </td>
                     {visibleColumns.map((col) => {
                       let content: React.ReactNode = grant[col.id];
                       let textContent = String(grant[col.id] || "");
@@ -744,7 +830,7 @@ export const Analytics = () => {
                         className="px-6 py-4 text-sm text-gray-700 align-top"
                         onMouseEnter={(e) => {
                            if (textContent && textContent !== "N/A" && textContent !== "No PI" && textContent !== "No Inst.") {
-                              setHoveredCell({ content: textContent, x: e.clientX, y: e.clientY });
+                               setHoveredCell({ content: textContent, x: e.clientX, y: e.clientY });
                            }
                         }}
                         onMouseMove={(e) => {
@@ -761,7 +847,7 @@ export const Analytics = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={visibleColumns.length} className="px-6 py-20 text-center text-gray-500">
+                  <td colSpan={visibleColumns.length + 1} className="px-6 py-20 text-center text-gray-500">
                     No results found matching selected filters.
                   </td>
                 </tr>
@@ -769,10 +855,36 @@ export const Analytics = () => {
             </tbody>
           </table>
         </div>
-        <div className="p-4 bg-gray-50 border-t border-gray-200 text-xs text-gray-500 flex justify-between items-center">
-          <span>Showing {grants.length} most relevant records</span>
-          {grants.length >= 50 && (
-            <span className="italic">Note: List limited to 50 results for performance. Use filters to narrow down.</span>
+        <div className="p-4 bg-gray-50 border-t border-gray-200 text-sm text-gray-500 flex justify-between items-center">
+          <span>Showing {displayedGrants.length} record{displayedGrants.length !== 1 ? 's' : ''} {showSelectedOnly ? '(Filtered by selection)' : ''}</span>
+          {!showSelectedOnly && (
+            <div className="flex items-center gap-3">
+              {grants.length >= pageSize && (
+                <button
+                  onClick={() => loadMore(pageSize + 20)}
+                  disabled={loadingMore}
+                  className="px-4 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
+                >
+                  {loadingMore ? 'Loading...' : `Load 20 More`}
+                </button>
+              )}
+              <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                <span>Show:</span>
+                {[20, 50, 100].map(size => (
+                  <button
+                    key={size}
+                    onClick={() => { if (size !== pageSize) loadMore(size); }}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      pageSize === size 
+                        ? 'bg-blue-600 text-white font-semibold' 
+                        : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>
