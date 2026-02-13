@@ -23,11 +23,13 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: str = ""
     
     # Data
-    CSV_PATH: str = ""
+    DATA_DIR: str = os.path.join(PROJECT_ROOT, "backend")
+    CSV_PATH: str = os.path.join(DATA_DIR, "outcomes.csv")
     
     # Embeddings
     EMBEDDINGS_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
     EMBEDDINGS_DIMENSION: int = 384
+
 
     class Config:
         # Point directly to the root .env so uvicorn started from backend/ still loads it
@@ -63,8 +65,10 @@ settings = {
         "model": _settings.EMBEDDINGS_MODEL,
         "dimension": _settings.EMBEDDINGS_DIMENSION
     },
-    "csv_path": _settings.CSV_PATH
+    "csv_path": _settings.CSV_PATH,
+    "data_dir": _settings.DATA_DIR
 }
+
 
 # Reconstruct secrets dict for compatibility with LLMHandler
 secrets = {

@@ -3,6 +3,7 @@ from typing import Optional, List, Dict
 from app.utils.neo4j_handler import Neo4jHandler
 from app.config import settings
 from app.utils.geocoding import get_institution_coordinates
+from app.utils.cache import get_cache_key, get_cached_data, set_cached_data
 
 router = APIRouter()
 
@@ -55,7 +56,16 @@ async def get_stats(
         }
         # Filter out None values
         filters = {k: v for k, v in filters.items() if v is not None}
+        
+        # Cache Check
+        data_version = handler.get_data_version()
+        cache_key = get_cache_key("stats", **filters)
+        cached = get_cached_data(cache_key, data_version)
+        if cached:
+            return cached
+
         stats = handler.get_database_stats(filters=filters)
+        set_cached_data(cache_key, data_version, stats)
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -105,7 +115,16 @@ async def get_top_institutions(
             "application_id": application_id
         }
         filters = {k: v for k, v in filters.items() if v is not None}
+        
+        # Cache Check
+        data_version = handler.get_data_version()
+        cache_key = get_cache_key("top_institutions", limit=limit, **filters)
+        cached = get_cached_data(cache_key, data_version)
+        if cached:
+            return cached
+
         institutions = handler.get_top_institutions(limit=limit, filters=filters)
+        set_cached_data(cache_key, data_version, institutions)
         return institutions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -145,7 +164,16 @@ async def get_funding_trends(
             "application_id": application_id
         }
         filters = {k: v for k, v in filters.items() if v is not None}
+        
+        # Cache Check
+        data_version = handler.get_data_version()
+        cache_key = get_cache_key("funding_trends", start=start_year_range, end=end_year_range, **filters)
+        cached = get_cached_data(cache_key, data_version)
+        if cached:
+            return cached
+
         trends = handler.get_funding_trends(start_year=start_year_range, end_year=end_year_range, filters=filters)
+        set_cached_data(cache_key, data_version, trends)
         return trends
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -154,7 +182,16 @@ async def get_funding_trends(
 async def get_filters():
     try:
         handler = get_neo4j_handler()
+        
+        # Cache Check
+        data_version = handler.get_data_version()
+        cache_key = get_cache_key("filter_options")
+        cached = get_cached_data(cache_key, data_version)
+        if cached:
+            return cached
+
         options = handler.get_filter_options()
+        set_cached_data(cache_key, data_version, options)
         return options
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -188,6 +225,13 @@ async def get_map_data(
         # Remove None values
         filters = {k: v for k, v in filters.items() if v is not None}
         
+        # Cache Check
+        data_version = handler.get_data_version()
+        cache_key = get_cache_key("map_data", **filters)
+        cached = get_cached_data(cache_key, data_version)
+        if cached:
+            return cached
+
         data = handler.get_institution_map_data(filters)
         
         # Enrich with coordinates
@@ -204,6 +248,7 @@ async def get_map_data(
                 # print(f"Missing coords for: {name}")
                 pass
                 
+        set_cached_data(cache_key, data_version, enriched_data)
         return enriched_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -245,7 +290,16 @@ async def get_grants(
             "application_id": application_id
         }
         filters = {k: v for k, v in filters.items() if v is not None}
+        
+        # Cache Check
+        data_version = handler.get_data_version()
+        cache_key = get_cache_key("grants", limit=limit, skip=skip, search=search, sort=sort_by, order=order, **filters)
+        cached = get_cached_data(cache_key, data_version)
+        if cached:
+            return cached
+
         grants = handler.get_grants_list(limit=limit, skip=skip, filters=filters, search=search, sort_by=sort_by, order=order)
+        set_cached_data(cache_key, data_version, grants)
         return grants
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

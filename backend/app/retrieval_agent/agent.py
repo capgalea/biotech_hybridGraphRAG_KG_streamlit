@@ -3,6 +3,8 @@ import pandas as pd
 import logging
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from app.config import settings
+
 # Adjusted imports for the new structure
 from app.retrieval_agent import scraper
 from app.retrieval_agent import normalizer
@@ -164,16 +166,21 @@ def fetch_data(nhmrc=True, arc=True, save_files=True, progress_callback=None):
                 # Helper for atomic saving
                 def atomic_save_df(df, filename):
                     import tempfile
-                    temp_fd, temp_path = tempfile.mkstemp(suffix=".csv", dir=".")
+                    target_path = os.path.join(settings['data_dir'], filename)
+                    # Ensure directory exists
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    
+                    temp_fd, temp_path = tempfile.mkstemp(suffix=".csv", dir=settings['data_dir'])
                     os.close(temp_fd)
                     df.to_csv(temp_path, index=False)
-                    if os.path.exists(filename):
-                        bak = filename + ".bak"
+                    if os.path.exists(target_path):
+                        bak = target_path + ".bak"
                         if os.path.exists(bak): os.remove(bak)
-                        os.rename(filename, bak)
-                    os.rename(temp_path, filename)
+                        os.rename(target_path, bak)
+                    os.rename(temp_path, target_path)
 
                 atomic_save_df(final_df, "outcomes.csv")
+
                 logger.info("Saved outcomes.csv")
                 
                 # Save individual files for separate display

@@ -1,6 +1,8 @@
 from neo4j import GraphDatabase
 from typing import List, Dict, Any, Optional
 import logging
+import time
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -11,22 +13,37 @@ class Neo4jHandler:
     
     def __init__(self, uri: str, user: str, password: str, database: str = "neo4j"):
         """Initialize Neo4j connection"""
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        kwargs = {
+            "connection_timeout": 15.0,
+            "max_connection_lifetime": 600,
+            "max_connection_pool_size": 100,
+            "keep_alive": True
+        }
+        self.driver = GraphDatabase.driver(uri, auth=(user, password), **kwargs)
         self.database = database
-        self.verify_connection()
+        
+        # Internal cache for version string
+        self._version_cache = None
+        self._version_expiry = 0
+        self._version_ttl = 300 # 5 minutes
     
     def verify_connection(self):
         """Verify database connection"""
         try:
-            with self.driver.session(database=self.database) as session:
-                result = session.run("RETURN 1 as test")
-                result.single()
-            logger.info("Neo4j connection successful")
+            self.driver.verify_connectivity()
+            logger.info("Neo4j connectivity verified")
         except Exception as e:
             logger.error(f"Neo4j connection failed: {str(e)}")
             raise
+
     
+    def reset_version_cache(self):
+        """Force version re-check on next call"""
+        self._version_cache = None
+        self._version_expiry = 0
+        
     def close(self):
+
         """Close the driver connection"""
         if self.driver:
             self.driver.close()
@@ -226,6 +243,36 @@ class Neo4jHandler:
             stats['unique_pi'] = record['count'] if record else 0
         
         return stats
+
+    def get_data_version(self) -> str:
+        """Get a version string based on node counts to detect changes"""
+        now = time.time()
+        if self._version_cache and now < self._version_expiry:
+            return self._version_cache
+
+        try:
+            with self.driver.session(database=self.database) as session:
+                # Optimized count check - metadata based in most Neo4j versions
+                result = session.run("""
+                    MATCH (g:Grant) RETURN count(g) as gc
+                """).single()
+                gc = result['gc'] if result else 0
+                
+                # We mainly care about Grant changes to invalidate analytics
+                # but let's add Researcher for completeness if it's fast
+                result = session.run("MATCH (r:Researcher) RETURN count(r) as rc").single()
+                rc = result['rc'] if result else 0
+                
+                version = f"g{gc}_r{rc}"
+                
+                self._version_cache = version
+                self._version_expiry = now + self._version_ttl
+                return version
+        except Exception as e:
+            logger.warning(f"Error getting data version: {e}")
+            return "error"
+
+
     
     def get_top_institutions(self, limit: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[Dict]:
         """

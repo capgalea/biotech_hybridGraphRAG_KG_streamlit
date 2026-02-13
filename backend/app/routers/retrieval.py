@@ -8,6 +8,8 @@ import logging
 from app.retrieval_agent.agent import fetch_data
 from app.utils.neo4j_handler import Neo4jHandler
 from app.config import settings
+from app.utils.cache import clear_cache
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -106,13 +108,16 @@ def run_neo4j_load_task():
         logger.info("Neo4j database cleared")
         
         # Load outcomes.csv
-        if os.path.exists("outcomes.csv"):
+        filepath = os.path.join(settings['data_dir'], "outcomes.csv")
+        if os.path.exists(filepath):
             update_progress("Loading combined grants to Neo4j...")
-            df = pd.read_csv("outcomes.csv")
+            df = pd.read_csv(filepath)
             handler.load_grants_from_dataframe(df)
-            logger.info(f"Loaded {len(df)} grants to Neo4j")
+            clear_cache()
+            logger.info(f"Loaded {len(df)} grants to Neo4j and cleared cache")
+
         else:
-            logger.warning("outcomes.csv not found")
+            logger.warning(f"{filepath} not found")
             
         handler.close()
         update_progress("Neo4j load completed successfully")
@@ -157,15 +162,18 @@ def get_data(
     """
     Read from local CSV for preview/table display.
     """
-    filename = "backend/outcomes.csv"
+    filename = "outcomes.csv"
     if source == "nhmrc":
-        filename = "backend/nhmrc_processed.csv"
+        filename = "nhmrc_processed.csv"
     elif source == "arc":
-        filename = "backend/arc_processed.csv"
+        filename = "arc_processed.csv"
+    
+    filepath = os.path.join(settings['data_dir'], filename)
+
         
     try:
         # Use cached loader
-        df = load_df_cached(filename)
+        df = load_df_cached(filepath)
         
         if df.empty:
              return {"data": [], "pagination": {"total": 0}}
@@ -213,15 +221,17 @@ def get_unique_values(column: str, source: str = Query("combined", regex="^(comb
     """
     Get distinct filter options for a column from local data for preview.
     """
-    filename = "backend/outcomes.csv"
+    filename = "outcomes.csv"
     if source == "nhmrc":
-        filename = "backend/nhmrc_processed.csv"
+        filename = "nhmrc_processed.csv"
     elif source == "arc":
-        filename = "backend/arc_processed.csv"
+        filename = "arc_processed.csv"
+
+    filepath = os.path.join(settings['data_dir'], filename)
 
     try:
         # Use cached loader - still fast because it's in memory
-        df = load_df_cached(filename)
+        df = load_df_cached(filepath)
         
         if df.empty or column not in df.columns:
              return {"values": []}
@@ -245,16 +255,18 @@ def get_neo4j_stats():
 
 @router.get("/export")
 def export_data(format: str = "csv", source: str = Query("combined", regex="^(combined|nhmrc|arc)$")):
-    filename = "backend/outcomes.csv"
+    filename = "outcomes.csv"
     if source == "nhmrc":
-        filename = "backend/nhmrc_processed.csv"
+        filename = "nhmrc_processed.csv"
     elif source == "arc":
-        filename = "backend/arc_processed.csv"
+        filename = "arc_processed.csv"
 
-    if not pd.io.common.file_exists(filename):
+    filepath = os.path.join(settings['data_dir'], filename)
+
+    if not os.path.exists(filepath):
          raise HTTPException(status_code=404, detail="No data available to export")
          
-    df = pd.read_csv(filename)
+    df = pd.read_csv(filepath)
     
     stream = io.BytesIO()
     out_filename = f"{source}_grants"
