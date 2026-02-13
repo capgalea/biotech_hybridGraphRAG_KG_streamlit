@@ -1,0 +1,16 @@
+
+--- Testing http://127.0.0.1:8000/ [GET] ---
+Status: 200
+Response: {"message":"Biotech GraphRAG API is running"}...
+
+--- Testing http://127.0.0.1:8000/api/test [GET] ---
+Status: 200
+Response: {"status":"ok","version":"new"}...
+
+--- Testing http://127.0.0.1:8000/api/query [POST] ---
+Status: 200
+Response: {"query":"test","cypher":"MATCH (g:Grant) OPTIONAL MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INV...
+
+--- Testing http://127.0.0.1:8000/api/query/ [POST] ---
+Status: 200
+Response: {"query":"test","cypher":"MATCH (g:Grant) OPTIONAL MATCH (r:Researcher)-[:PRINCIPAL_INVESTIGATOR|INV...

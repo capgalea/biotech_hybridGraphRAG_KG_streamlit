@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import analytics, collaboration, graph, query
+from app.routers import analytics, collaboration, graph, query, retrieval
 
 app = FastAPI(title="Biotech GraphRAG API")
 
@@ -25,6 +25,10 @@ app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(collaboration.router, prefix="/api/collaboration", tags=["collaboration"])
 app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
+app.include_router(retrieval.router, prefix="/api/retrieval", tags=["retrieval"])
+print("DEBUG: Included retrieval router")
+print(f"DEBUG: Routes count: {len(app.routes)}")
+
 
 @app.get("/")
 async def root():

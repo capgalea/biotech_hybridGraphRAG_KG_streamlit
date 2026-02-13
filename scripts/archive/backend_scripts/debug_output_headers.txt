@@ -1,0 +1,5 @@
+Sheet names: ['NOTES', 'GRANTS DATA', 'Summary - Announcement Date', 'Summary - Grant Type', 'Summary - Administering Inst.', 'NHMRC-GACD', 'TCR - EQST', 'Partnership Projects', 'Investigator Grants', 'CTCS', 'TCR - Commercial Determinants', 'TCR - IIPCRACH ', 'CRE', 'Synergy Grants', 'JPIAMR', 'e-ASIA', 'Ideas Grants', 'Development Grants', 'Postgraduate Scholarships', 'NHMRC-EU', 'TCR - CHIEIIHO']
+Reading sheet: GRANTS DATA
+Headers: ['App ID', 'Date Announced', 'CIA Name', 'Grant Type', 'Sub Type', 'Grant Title', 'Admin Institution', 'State', 'Sector', 'Total', 'Broad Research Area', 'Fields of Research', 'Res KW1', 'Res KW2', 'Res KW3', 'Res KW4', 'Res KW5', 'Plain Description', 'Unnamed: 18']
+Columns in headers_set: {'Sub Type', 'Total', 'Plain Description', 'Sector', 'Grant Type', 'Res KW5', 'Res KW1', 'Unnamed: 18', 'Admin Institution', 'Grant Title', 'Date Announced', 'Res KW2', 'Fields of Research', 'Broad Research Area', 'Res KW4', 'App ID', 'Res KW3', 'CIA Name', 'State'}
+Detected format: legacy_standard

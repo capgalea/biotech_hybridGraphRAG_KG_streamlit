@@ -1,6 +1,0 @@
-C:\Users\guino\OneDrive\Documents\GitHub\biotech_hybridGraphRAG_KG_streamlit\backend\test_anthropic.py:20: DeprecationWarning: The model 'claude-3-opus-20240229' is deprecated and will reach end-of-life on January 5th, 2026.
-Please migrate to a newer model. Visit https://docs.anthropic.com/en/docs/resources/model-deprecations for more information.
-  message = client.messages.create(
-ANTHROPIC_API_KEY: sk-ant-api...x2gAA
-SUCCESS: Anthropic API is working!
-Response: Yes, I am online and ready to assist you

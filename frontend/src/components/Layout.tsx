@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { MessageSquare, BarChart2, Users, Share2, Menu, X } from "lucide-react";
+import { MessageSquare, BarChart2, Users, Share2, Menu, X, Database } from "lucide-react";
 import clsx from "clsx";
 
 const SidebarItem = ({
@@ -37,6 +37,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
     { path: "/analytics", icon: BarChart2, label: "Analytics" },
     { path: "/collaboration", icon: Users, label: "Collaboration" },
     { path: "/graph", icon: Share2, label: "Graph Viz" },
+    { path: "/grant-retrieval", icon: Database, label: "Grant Retrieval" },
   ];
 
   return (

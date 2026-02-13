@@ -4,7 +4,9 @@ import { Layout } from "./components/Layout";
 import { Home } from "./pages/Home";
 import { Analytics } from "./pages/Analytics";
 import { Collaboration } from "./pages/Collaboration";
+
 import { GraphViz } from "./pages/GraphViz";
+import { GrantRetrieval } from "./pages/GrantRetrieval";
 import { GlobalStateProvider } from "./context/GlobalStateContext";
 
 function App() {
@@ -17,6 +19,7 @@ function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/collaboration" element={<Collaboration />} />
             <Route path="/graph" element={<GraphViz />} />
+            <Route path="/grant-retrieval" element={<GrantRetrieval />} />
           </Routes>
         </Layout>
       </Router>

@@ -1,3 +1,0 @@
-ANTHROPIC_API_KEY: sk-ant-api...x2gAA
-SUCCESS: Anthropic API is working!
-Response: Yes, I am working and ready to assist you

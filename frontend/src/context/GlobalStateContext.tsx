@@ -92,11 +92,58 @@ const initialAnalyticsState: AnalyticsState = {
   isLoaded: false
 };
 
+const STORAGE_KEY = 'biotech_app_state_v1';
+
 const GlobalStateContext = createContext<GlobalStateContextType | undefined>(undefined);
 
 export const GlobalStateProvider = ({ children }: { children: ReactNode }) => {
-  const [homeState, setHomeState] = useState<HomeState>(initialHomeState);
-  const [analyticsState, setAnalyticsState] = useState<AnalyticsState>(initialAnalyticsState);
+  // Load initial state from localStorage if available
+  const getInitialState = <T,>(key: string, fallback: T): T => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed[key]) return parsed[key];
+      }
+    } catch (e) {
+      console.error(`Error loading state ${key}`, e);
+    }
+    return fallback;
+  };
+
+  const [homeState, setHomeState] = useState<HomeState>(() => 
+    getInitialState('home', initialHomeState)
+  );
+  
+  const [analyticsState, setAnalyticsState] = useState<AnalyticsState>(() => {
+    const saved = getInitialState<AnalyticsState>('analytics', initialAnalyticsState);
+    // Don't mark as loaded initially so it can check for fresh data from server
+    return { ...saved, isLoaded: false };
+  });
+
+  // Save state to localStorage whenever it changes
+  React.useEffect(() => {
+    try {
+      const stateToSave = {
+        home: homeState,
+        analytics: {
+            ...analyticsState,
+            // We might want to keep the data in memory but not persist huge arrays if they exceed quota
+            // For now, let's try persisting everything but be ready to clear if quota hit
+            isLoaded: false // Always force revalidation on next full reload
+        }
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    } catch (e) {
+      console.error("Error saving state to localStorage", e);
+      // If quota exceeded, maybe clear old data
+      if ((e as any).name === 'QuotaExceededError') {
+          // Fallback: don't save the heavy arrays
+          const safeAnalytics = { ...analyticsState, grants: [], fundingData: [], trendsData: [] };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ home: homeState, analytics: safeAnalytics }));
+      }
+    }
+  }, [homeState, analyticsState]);
 
   return (
     <GlobalStateContext.Provider value={{

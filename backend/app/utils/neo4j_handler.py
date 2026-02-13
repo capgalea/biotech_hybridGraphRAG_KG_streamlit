@@ -94,6 +94,14 @@ class Neo4jHandler:
                     record_dict = {}
                     for key in record.keys():
                         value = record[key]
+                        
+                        # Sanitize floats for JSON compliance
+                        if isinstance(value, float):
+                            if value != value:  # NaN check
+                                value = None
+                            elif value == float('inf') or value == float('-inf'):
+                                value = None
+                                
                         # Convert Neo4j nodes/relationships to dictionaries
                         if hasattr(value, '__dict__'):
                             record_dict[key] = dict(value)
@@ -544,6 +552,180 @@ class Neo4jHandler:
         """
         
         return self.execute_cypher(cypher, {'name': area_name})
+
+    def clear_database(self):
+        """Clear all nodes and relationships from the database"""
+        with self.driver.session(database=self.database) as session:
+            # Delete all nodes and relationships
+            session.run("MATCH (n) DETACH DELETE n")
+            logger.info("Neo4j database cleared")
+
+    def load_grants_from_dataframe(self, df: Any, progress_callback=None) -> int:
+        """Alias for load_grants_dataframe for compatibility"""
+        return self.load_grants_dataframe(df, progress_callback)
+
+    def load_grants_dataframe(self, df: Any, progress_callback=None) -> int:
+        """
+        Load grants into Neo4j using batched UNWIND.
+        Adapted to the Destination Schema:
+          - Grant keyed on application_id
+          - Organization -> Institution ([:HOSTED_BY])
+          - Researcher ([:PRINCIPAL_INVESTIGATOR], [:INVESTIGATOR])
+        """
+        import pandas as pd
+        if df.empty:
+            return 0
+
+        def report(msg):
+            if progress_callback:
+                try:
+                    progress_callback(msg)
+                except Exception:
+                    pass
+
+        # Helper to clean strings
+        def _clean(val):
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                return ""
+            return str(val).strip()
+
+        # Helper to safe float
+        def _to_float_safe(val):
+            s = _clean(val)
+            if not s: return None
+            try:
+                s = s.replace(",", "").replace("$", "").replace(" ", "")
+                return float(s)
+            except: return None
+
+        # Helper to safe int
+        def _to_int_safe(val):
+            s = _clean(val)
+            if not s: return None
+            try:
+                return int(float(s))
+            except: return None
+            
+        total = len(df)
+        report(f"Loading {total} grants into Neo4j...")
+        
+        # Prepare records
+        records = []
+        for _, row in df.iterrows():
+            records.append({
+                "application_id": _clean(row.get("Application_ID")),
+                "grant_title": _clean(row.get("Grant_Title")),
+                "total_amount": _to_float_safe(row.get("Total_Amount")),
+                "broad_research_area": _clean(row.get("Broad_Research_Area")),
+                "plain_description": _clean(row.get("Plain_Description")),
+                "grant_start_year": _to_int_safe(row.get("Grant_Start_Year")),
+                "grant_status": _clean(row.get("Grant_Status")),
+                "admin_institution": _clean(row.get("Admin_Institution")),
+                "field_of_research": _clean(row.get("Field_of_Research")),
+                "grant_type": _clean(row.get("Grant_Type")),
+                "funding_body": _clean(row.get("Funding_Body")),
+                "cia_name": _clean(row.get("CIA_Name")),
+                "investigators": _clean(row.get("Investigators")),
+            })
+
+        BATCH_SIZE = 2000
+        
+        with self.driver.session(database=self.database) as session:
+            
+            # 1. Dimension Nodes
+            report("Neo4j: Creating dimension nodes...")
+            
+            # Create Institutions
+            unique_institutions = list({r["admin_institution"] for r in records if r["admin_institution"]})
+            for i in range(0, len(unique_institutions), BATCH_SIZE):
+                batch = [{"name": v} for v in unique_institutions[i:i+BATCH_SIZE]]
+                session.run("""
+                    UNWIND $batch AS row
+                    MERGE (i:Institution {name: row.name})
+                """, batch=batch)
+                
+            # Create Researchers (CIA)
+            unique_researchers = list({r["cia_name"] for r in records if r["cia_name"]})
+            for i in range(0, len(unique_researchers), BATCH_SIZE):
+                batch = [{"name": v} for v in unique_researchers[i:i+BATCH_SIZE]]
+                session.run("""
+                    UNWIND $batch AS row
+                    MERGE (r:Researcher {name: row.name})
+                """, batch=batch)
+
+            # Create Funding Bodies (Optional - if node exists provided by old schema)
+            # Schema suggests Funding_Body is a property or separate node. 
+            # In source it was a node. In destination, we might just keep as property or new node.
+            # Let's create node to be safe and rich.
+            unique_funders = list({r["funding_body"] for r in records if r["funding_body"]})
+            for i in range(0, len(unique_funders), BATCH_SIZE):
+                batch = [{"name": v} for v in unique_funders[i:i+BATCH_SIZE]]
+                session.run("""
+                    UNWIND $batch AS row
+                    MERGE (f:FundingBody {name: row.name})
+                """, batch=batch)
+                
+            # Create Broad Research Area (Source has this)
+            unique_broad_areas = list({r["broad_research_area"] for r in records if r["broad_research_area"]})
+            for i in range(0, len(unique_broad_areas), BATCH_SIZE):
+                batch = [{"name": v} for v in unique_broad_areas[i:i+BATCH_SIZE]]
+                session.run("""
+                    UNWIND $batch AS row
+                    MERGE (a:ResearchArea {name: row.name})
+                """, batch=batch)
+
+            # 2. Grant Nodes
+            report("Neo4j: Creating Grant nodes...")
+            for i in range(0, total, BATCH_SIZE):
+                batch = records[i:i+BATCH_SIZE]
+                session.run("""
+                    UNWIND $batch AS row
+                    MERGE (g:Grant {application_id: row.application_id})
+                    SET g.title = row.grant_title,
+                        g.amount = row.total_amount,
+                        g.broad_research_area = row.broad_research_area,
+                        g.description = row.plain_description,
+                        g.start_year = row.grant_start_year,
+                        g.grant_status = row.grant_status,
+                        g.grant_type = row.grant_type,
+                        g.funding_body = row.funding_body,
+                        g.field_of_research = row.field_of_research
+                """, batch=batch)
+                
+            # 3. Relationships
+            report("Neo4j: Creating relationships...")
+            for i in range(0, total, BATCH_SIZE):
+                batch = records[i:i+BATCH_SIZE]
+                
+                # HOSTED_BY (Institution)
+                session.run("""
+                    UNWIND $batch AS row
+                    WITH row WHERE row.admin_institution <> '' AND row.application_id <> ''
+                    MATCH (g:Grant {application_id: row.application_id})
+                    MATCH (i:Institution {name: row.admin_institution})
+                    MERGE (g)-[:HOSTED_BY]->(i)
+                """, batch=batch)
+                
+                # PRINCIPAL_INVESTIGATOR (Researcher)
+                session.run("""
+                    UNWIND $batch AS row
+                    WITH row WHERE row.cia_name <> '' AND row.application_id <> ''
+                    MATCH (g:Grant {application_id: row.application_id})
+                    MATCH (r:Researcher {name: row.cia_name})
+                    MERGE (r)-[:PRINCIPAL_INVESTIGATOR]->(g)
+                """, batch=batch)
+
+                # IN_AREA (ResearchArea)
+                session.run("""
+                    UNWIND $batch AS row
+                    WITH row WHERE row.broad_research_area <> '' AND row.application_id <> ''
+                    MATCH (g:Grant {application_id: row.application_id})
+                    MATCH (a:ResearchArea {name: row.broad_research_area})
+                    MERGE (g)-[:IN_AREA]->(a)
+                """, batch=batch)
+                
+        report(f"Neo4j load complete. {total} grants processed.")
+        return total
     
     def __del__(self):
         """Cleanup on deletion"""

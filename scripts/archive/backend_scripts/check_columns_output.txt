@@ -1,0 +1,50 @@
+Checking backend/nhmrc_processed.csv...
+Columns: ['Application_ID', 'Date_Announced', 'CIA_Name', 'Grant_Title', 'Grant_Type', 'Total_Amount', 'Broad_Research_Area', 'Field_of_Research', 'Plain_Description', 'Admin_Institution', 'Grant_Start_Year', 'Grant_End_Date', 'CIA_ORCID_ID', 'Funding_Body', 'Source_File', 'Grant_Status', 'Investigators', 'Participating_Institutions']
+Shape: (10699, 18)
+All expected columns present.
+First row:
+Application_ID                                                          2022203
+Date_Announced                                              2023-03-29 00:00:00
+CIA_Name                                                           Dr Yijun Pan
+Grant_Title                   Exploring biomarkers, therapeutic targets, and...
+Grant_Type                                         International Collaborations
+Total_Amount                                                           499806.8
+Broad_Research_Area                      Clinical Medicine and Science Research
+Field_of_Research             biomedical and clinical sciences | neuroscienc...
+Plain_Description             There are various form of dementia, e.g. Alzhe...
+Admin_Institution                                       University of Melbourne
+Grant_Start_Year                                                           2023
+Grant_End_Date                                                              NaN
+CIA_ORCID_ID                                                                NaN
+Funding_Body                                                              NHMRC
+Source_File                      Summary-of-result-2023-app-round-15122023.xlsx
+Grant_Status                                                                NaN
+Investigators                                                               NaN
+Participating_Institutions                                                  NaN
+Name: 0, dtype: object
+------------------------------
+Checking backend/arc_processed.csv...
+Columns: ['Application_ID', 'Date_Announced', 'CIA_Name', 'Grant_Title', 'Grant_Type', 'Total_Amount', 'Broad_Research_Area', 'Field_of_Research', 'Plain_Description', 'Admin_Institution', 'Grant_Start_Year', 'Grant_End_Date', 'CIA_ORCID_ID', 'Funding_Body', 'Source_File', 'Grant_Status', 'Investigators', 'Participating_Institutions']
+Shape: (20000, 18)
+All expected columns present.
+First row:
+Application_ID                                                      CE140100003
+Date_Announced                                                              NaN
+CIA_Name                                                   Prof Mark Hutchinson
+Grant_Title                   ARC Centre of Excellence for Nanoscale BioPhot...
+Grant_Type                                            ARC Centres of Excellence
+Total_Amount                                                           23000000
+Broad_Research_Area                                                         NaN
+Field_of_Research                                         1007 - Nanotechnology
+Plain_Description                                                           NaN
+Admin_Institution                                    The University of Adelaide
+Grant_Start_Year                                                           1970
+Grant_End_Date                                                       2020-12-31
+CIA_ORCID_ID                                                                NaN
+Funding_Body                                                                ARC
+Source_File                                                        ARC_API_Data
+Grant_Status                                                             Closed
+Investigators                 Prof Andrew Abell; Prof Ewa Goldys; Prof Nicol...
+Participating_Institutions                                                  NaN
+Name: 0, dtype: object
+------------------------------
